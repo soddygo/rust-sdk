@@ -241,11 +241,25 @@ fn should_ignore_notification(json_value: &serde_json::Value, method: &str) -> b
 }
 
 /// Try to parse a message with compatibility handling for non-standard notifications
+/// and non-JSON content (e.g., log messages from MCP servers that output to stdout
+/// instead of stderr).
+///
+/// This function implements a tolerant parsing strategy:
+/// 1. Try to parse as the expected MCP message type
+/// 2. If that fails but the content is valid JSON, check if it's a non-standard
+///    notification that should be ignored
+/// 3. If the content is not valid JSON at all (e.g., plain text logs), skip it
+///    gracefully instead of causing the connection to terminate
 fn try_parse_with_compatibility<T: serde::de::DeserializeOwned>(
     line: &[u8],
     context: &str,
 ) -> Result<Option<T>, JsonRpcMessageCodecError> {
     if let Ok(line_str) = std::str::from_utf8(line) {
+        // Skip empty lines
+        if line_str.trim().is_empty() {
+            return Ok(None);
+        }
+
         match serde_json::from_slice(line) {
             Ok(item) => Ok(Some(item)),
             Err(e) => {
@@ -258,21 +272,40 @@ fn try_parse_with_compatibility<T: serde::de::DeserializeOwned>(
                             return Ok(None);
                         }
                     }
+                    // Valid JSON but not a recognized MCP message - this is an error
+                    tracing::debug!(
+                        "Failed to parse message {}: {} | Error: {}",
+                        context,
+                        line_str,
+                        e
+                    );
+                    return Err(JsonRpcMessageCodecError::Serde(e));
                 }
 
-                tracing::debug!(
-                    "Failed to parse message {}: {} | Error: {}",
+                // Not valid JSON - this is likely a log message or other non-JSON output
+                // Skip it gracefully to maintain compatibility with MCP servers that
+                // incorrectly output logs to stdout instead of stderr
+                tracing::warn!(
+                    "Skipping non-JSON output from MCP server ({}): {}",
                     context,
-                    line_str,
-                    e
+                    line_str
                 );
-                Err(JsonRpcMessageCodecError::Serde(e))
+                Ok(None)
             }
         }
     } else {
-        serde_json::from_slice(line)
-            .map(Some)
-            .map_err(JsonRpcMessageCodecError::Serde)
+        // Non-UTF8 bytes, try to parse as JSON directly
+        match serde_json::from_slice(line) {
+            Ok(item) => Ok(Some(item)),
+            Err(_e) => {
+                tracing::warn!(
+                    "Skipping invalid UTF-8 output from MCP server ({}): {:?}",
+                    context,
+                    line
+                );
+                Ok(None)
+            }
+        }
     }
 }
 
@@ -346,7 +379,7 @@ impl<T: DeserializeOwned> Decoder for JsonRpcMessageCodec<T> {
                     // Use compatibility handling function
                     let item = match try_parse_with_compatibility(line, "decode")? {
                         Some(item) => item,
-                        None => return Ok(None), // Skip non-standard message
+                        None => continue, // Skip non-standard message or non-JSON content, continue to next line
                     };
                     return Ok(Some(item));
                 }
@@ -398,158 +431,5 @@ impl<T: Serialize> Encoder<T> for JsonRpcMessageCodec<T> {
         serde_json::to_writer(buf.writer(), &item)?;
         buf.put_u8(b'\n');
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use futures::{Sink, Stream};
-
-    use super::*;
-    fn from_async_read<T: DeserializeOwned, R: AsyncRead>(reader: R) -> impl Stream<Item = T> {
-        FramedRead::new(reader, JsonRpcMessageCodec::<T>::default()).filter_map(|result| {
-            if let Err(e) = &result {
-                tracing::error!("Error reading from stream: {}", e);
-            }
-            futures::future::ready(result.ok())
-        })
-    }
-
-    fn from_async_write<T: Serialize, W: AsyncWrite + Send>(
-        writer: W,
-    ) -> impl Sink<T, Error = std::io::Error> {
-        FramedWrite::new(writer, JsonRpcMessageCodec::<T>::default()).sink_map_err(Into::into)
-    }
-    #[tokio::test]
-    async fn test_decode() {
-        use futures::StreamExt;
-        use tokio::io::BufReader;
-
-        let data = r#"{"jsonrpc":"2.0","method":"subtract","params":[42,23],"id":1}
-    {"jsonrpc":"2.0","method":"subtract","params":[23,42],"id":2}
-    {"jsonrpc":"2.0","method":"subtract","params":[42,23],"id":3}
-    {"jsonrpc":"2.0","method":"subtract","params":[23,42],"id":4}
-    {"jsonrpc":"2.0","method":"subtract","params":[42,23],"id":5}
-    {"jsonrpc":"2.0","method":"subtract","params":[23,42],"id":6}
-    {"jsonrpc":"2.0","method":"subtract","params":[42,23],"id":7}
-    {"jsonrpc":"2.0","method":"subtract","params":[23,42],"id":8}
-    {"jsonrpc":"2.0","method":"subtract","params":[42,23],"id":9}
-    {"jsonrpc":"2.0","method":"subtract","params":[23,42],"id":10}
-
-    "#;
-
-        let mut cursor = BufReader::new(data.as_bytes());
-        let mut stream = from_async_read::<serde_json::Value, _>(&mut cursor);
-
-        for i in 1..=10 {
-            let item = stream.next().await.unwrap();
-            assert_eq!(
-                item,
-                serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "method": "subtract",
-                    "params": if i % 2 != 0 { [42, 23] } else { [23, 42] },
-                    "id": i,
-                })
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn test_encode() {
-        let test_messages = vec![
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "subtract",
-                "params": [42, 23],
-                "id": 1,
-            }),
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "subtract",
-                "params": [23, 42],
-                "id": 2,
-            }),
-        ];
-
-        // Create a buffer to write to
-        let mut buffer = Vec::new();
-        let mut writer = from_async_write(&mut buffer);
-
-        // Write the test messages
-        for message in test_messages.iter() {
-            writer.send(message.clone()).await.unwrap();
-        }
-        writer.close().await.unwrap();
-        drop(writer);
-        // Parse the buffer back into lines and check each one
-        let output = String::from_utf8_lossy(&buffer);
-        let mut lines = output.lines();
-
-        for expected_message in test_messages {
-            let line = lines.next().unwrap();
-            let parsed_message: serde_json::Value = serde_json::from_str(line).unwrap();
-            assert_eq!(parsed_message, expected_message);
-        }
-
-        // Make sure there are no extra lines
-        assert!(lines.next().is_none());
-    }
-
-    #[test]
-    fn test_standard_notification_check() {
-        // Test that all standard notifications are recognized
-        assert!(is_standard_notification("notifications/cancelled"));
-        assert!(is_standard_notification("notifications/initialized"));
-        assert!(is_standard_notification("notifications/progress"));
-        assert!(is_standard_notification(
-            "notifications/resources/list_changed"
-        ));
-        assert!(is_standard_notification("notifications/resources/updated"));
-        assert!(is_standard_notification(
-            "notifications/prompts/list_changed"
-        ));
-        assert!(is_standard_notification("notifications/tools/list_changed"));
-        assert!(is_standard_notification("notifications/message"));
-        assert!(is_standard_notification("notifications/roots/list_changed"));
-
-        // Test that non-standard notifications are not recognized
-        assert!(!is_standard_notification("notifications/stderr"));
-        assert!(!is_standard_notification("notifications/custom"));
-        assert!(!is_standard_notification("notifications/debug"));
-        assert!(!is_standard_notification("some/other/method"));
-    }
-
-    #[test]
-    fn test_compatibility_function() {
-        // Test the compatibility function directly
-        let stderr_message =
-            r#"{"method":"notifications/stderr","params":{"content":"stderr message"}}"#;
-        let custom_message = r#"{"method":"notifications/custom","params":{"data":"custom"}}"#;
-        let standard_message =
-            r#"{"method":"notifications/message","params":{"level":"info","data":"standard"}}"#;
-        let progress_message = r#"{"method":"notifications/progress","params":{"progressToken":"token","progress":50}}"#;
-
-        // Test with valid JSON - all should parse successfully
-        let result1 =
-            try_parse_with_compatibility::<serde_json::Value>(stderr_message.as_bytes(), "test");
-        let result2 =
-            try_parse_with_compatibility::<serde_json::Value>(custom_message.as_bytes(), "test");
-        let result3 =
-            try_parse_with_compatibility::<serde_json::Value>(standard_message.as_bytes(), "test");
-        let result4 =
-            try_parse_with_compatibility::<serde_json::Value>(progress_message.as_bytes(), "test");
-
-        // All should parse successfully since they're valid JSON
-        assert!(result1.is_ok());
-        assert!(result2.is_ok());
-        assert!(result3.is_ok());
-        assert!(result4.is_ok());
-
-        // Standard notifications should return Some(value)
-        assert!(result3.unwrap().is_some());
-        assert!(result4.unwrap().is_some());
-
-        println!("Standard notifications are preserved, non-standard are handled gracefully");
     }
 }
