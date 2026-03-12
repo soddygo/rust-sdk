@@ -7,7 +7,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-rmcp = { workspace = true, features = [
+rmcp-soddygo = { workspace = true, features = [
     "client",
     "reqwest",
     "transport-streamable-http-client-reqwest",

@@ -16,7 +16,7 @@ publish = false
 all-features = true
 
 [dependencies]
-rmcp = { workspace = true, features = ["server", "client"] }
+rmcp-soddygo = { workspace = true, features = ["server", "client"] }
 tokio = { version = "1", features = [
     "macros",
     "rt",

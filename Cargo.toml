@@ -4,8 +4,8 @@ default-members = ["crates/rmcp", "crates/rmcp-macros"]
 resolver = "2"
 
 [workspace.dependencies]
-rmcp = { version = "1.1.1", path = "./crates/rmcp" }
-rmcp-macros = { version = "1.1.1", path = "./crates/rmcp-macros" }
+rmcp-soddygo = { version = "1.1.1", path = "./crates/rmcp" }
+rmcp-soddygo-macros = { version = "1.1.1", path = "./crates/rmcp-macros" }
 
 [workspace.package]
 edition = "2024"

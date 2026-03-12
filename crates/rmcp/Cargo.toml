@@ -1,5 +1,5 @@
 [package]
-name = "rmcp"
+name = "rmcp-soddygo"
 license = { workspace = true }
 license-file = { workspace = true }
 version = { workspace = true }
@@ -64,7 +64,7 @@ http-body = { version = "1", optional = true }
 http-body-util = { version = "0.1", optional = true }
 bytes = { version = "1", optional = true }
 # macro
-rmcp-macros = { workspace = true, optional = true }
+rmcp-soddygo-macros = { workspace = true, optional = true }
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
 chrono = { version = "0.4.38", features = ["serde"] }
 
@@ -80,7 +80,7 @@ chrono = { version = "0.4.38", default-features = false, features = [
 default = ["base64", "macros", "server"]
 client = ["dep:tokio-stream"]
 server = ["transport-async-rw", "dep:schemars", "dep:pastey"]
-macros = ["dep:rmcp-macros", "dep:pastey"]
+macros = ["dep:rmcp-soddygo-macros", "dep:pastey"]
 elicitation = ["dep:url"]
 
 # reqwest http client
