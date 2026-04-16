@@ -114,7 +114,7 @@ chrono = { version = "0.4.38", default-features = false, features = [
 
 [features]
 default = ["base64", "macros", "server"]
-local = ["rmcp-macros?/local"]
+local = ["rmcp-soddygo-macros?/local"]
 client = ["dep:tokio-stream"]
 server = ["transport-async-rw", "dep:schemars", "dep:pastey"]
 macros = ["dep:rmcp-soddygo-macros", "dep:pastey"]
