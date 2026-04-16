@@ -140,6 +140,7 @@ where
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct RoleClient;
 
 impl ServiceRole for RoleClient {
@@ -162,7 +163,8 @@ impl<S: Service<RoleClient>> ServiceExt<RoleClient> for S {
         self,
         transport: T,
         ct: CancellationToken,
-    ) -> impl Future<Output = Result<RunningService<RoleClient, Self>, ClientInitializeError>> + Send
+    ) -> impl Future<Output = Result<RunningService<RoleClient, Self>, ClientInitializeError>>
+    + MaybeSendFuture
     where
         T: IntoTransport<RoleClient, E, A>,
         E: std::error::Error + Send + Sync + 'static,

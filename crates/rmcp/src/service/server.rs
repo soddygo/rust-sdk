@@ -27,6 +27,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct RoleServer;
 
 impl ServiceRole for RoleServer {
@@ -52,6 +53,10 @@ pub enum ServerInitializeError {
     #[error("expect initialized request, but received: {0:?}")]
     ExpectedInitializeRequest(Option<ClientJsonRpcMessage>),
 
+    #[deprecated(
+        since = "1.4.0",
+        note = "The server no longer gates on the initialized notification. This variant is never constructed and will be removed in a future major release."
+    )]
     #[error("expect initialized notification, but received: {0:?}")]
     ExpectedInitializedNotification(Option<ClientJsonRpcMessage>),
 
@@ -95,7 +100,8 @@ impl<S: Service<RoleServer>> ServiceExt<RoleServer> for S {
         self,
         transport: T,
         ct: CancellationToken,
-    ) -> impl Future<Output = Result<RunningService<RoleServer, Self>, ServerInitializeError>> + Send
+    ) -> impl Future<Output = Result<RunningService<RoleServer, Self>, ServerInitializeError>>
+    + MaybeSendFuture
     where
         T: IntoTransport<RoleServer, E, A>,
         E: std::error::Error + Send + Sync + 'static,
@@ -131,22 +137,6 @@ where
         .ok_or_else(|| ServerInitializeError::ConnectionClosed(context.to_string()))
 }
 
-/// Helper function to expect a request from the stream
-async fn expect_request<T>(
-    transport: &mut T,
-    context: &str,
-) -> Result<(ClientRequest, RequestId), ServerInitializeError>
-where
-    T: Transport<RoleServer>,
-{
-    let msg = expect_next_message(transport, context).await?;
-    let msg_clone = msg.clone();
-    msg.into_request()
-        .ok_or(ServerInitializeError::ExpectedInitializeRequest(Some(
-            msg_clone,
-        )))
-}
-
 pub async fn serve_server_with_ct<S, T, E, A>(
     service: S,
     transport: T,
@@ -177,8 +167,35 @@ where
     let mut transport = transport.into_transport();
     let id_provider = <Arc<AtomicU32RequestIdProvider>>::default();
 
-    // Get initialize request
-    let (request, id) = expect_request(&mut transport, "initialized request").await?;
+    // Get initialize request; the MCP spec permits ping before initialize.
+    // See: https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization
+    let (request, id) = loop {
+        let msg = expect_next_message(&mut transport, "initialize request").await?;
+        match msg {
+            ClientJsonRpcMessage::Request(req)
+                if matches!(req.request, ClientRequest::PingRequest(_)) =>
+            {
+                transport
+                    .send(ServerJsonRpcMessage::response(
+                        ServerResult::EmptyResult(EmptyResult {}),
+                        req.id,
+                    ))
+                    .await
+                    .map_err(|error| {
+                        ServerInitializeError::transport::<T>(
+                            error,
+                            "sending pre-init ping response",
+                        )
+                    })?;
+            }
+            ClientJsonRpcMessage::Request(req) => break (req.request, req.id),
+            other => {
+                return Err(ServerInitializeError::ExpectedInitializeRequest(Some(
+                    other,
+                )));
+            }
+        }
+    };
 
     let ClientRequest::InitializeRequest(peer_info) = &request else {
         return Err(ServerInitializeError::ExpectedInitializeRequest(Some(
@@ -230,49 +247,12 @@ where
             ServerInitializeError::transport::<T>(error, "sending initialize response")
         })?;
 
-    // Wait for initialized notification. The MCP spec permits logging/setLevel and ping
-    // before initialized; VS Code sends setLevel immediately after the initialize response.
-    let notification = loop {
-        let msg = expect_next_message(&mut transport, "initialize notification").await?;
-        match msg {
-            ClientJsonRpcMessage::Notification(n)
-                if matches!(
-                    n.notification,
-                    ClientNotification::InitializedNotification(_)
-                ) =>
-            {
-                break n.notification;
-            }
-            ClientJsonRpcMessage::Request(req)
-                if matches!(
-                    req.request,
-                    ClientRequest::SetLevelRequest(_) | ClientRequest::PingRequest(_)
-                ) =>
-            {
-                transport
-                    .send(ServerJsonRpcMessage::response(
-                        ServerResult::EmptyResult(EmptyResult {}),
-                        req.id,
-                    ))
-                    .await
-                    .map_err(|error| {
-                        ServerInitializeError::transport::<T>(error, "sending pre-init response")
-                    })?;
-            }
-            other => {
-                return Err(ServerInitializeError::ExpectedInitializedNotification(
-                    Some(other),
-                ));
-            }
-        }
-    };
-    let context = NotificationContext {
-        meta: notification.get_meta().clone(),
-        extensions: notification.extensions().clone(),
-        peer: peer.clone(),
-    };
-    let _ = service.handle_notification(notification, context).await;
-    // Continue processing service
+    // Enter the main service loop immediately after sending InitializeResult.
+    // The initialized notification will be handled as a regular notification by serve_inner.
+    // This matches the TypeScript SDK behavior: no init gate, no waiting for initialized.
+    // Streamable HTTP has no ordering guarantee between POSTs, and the MCP spec uses
+    // SHOULD NOT (not MUST NOT) for pre-initialized messages, so any request arriving
+    // before initialized is processed normally.
     Ok(serve_inner(service, transport, peer, peer_rx, ct))
 }
 
@@ -559,6 +539,7 @@ macro_rules! elicit_safe {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ElicitationMode {
     Form,
     Url,

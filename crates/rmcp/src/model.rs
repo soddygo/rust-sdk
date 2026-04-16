@@ -58,6 +58,7 @@ macro_rules! object {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Copy, Eq)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "server", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct EmptyObject {}
 
 pub trait ConstString: Default {
@@ -70,6 +71,7 @@ pub trait ConstString: Default {
 macro_rules! const_string {
     ($name:ident = $value:literal) => {
         #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+        #[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
         pub struct $name;
 
         impl ConstString for $name {
@@ -150,14 +152,19 @@ impl std::fmt::Display for ProtocolVersion {
 }
 
 impl ProtocolVersion {
+    pub const V_2025_11_25: Self = Self(Cow::Borrowed("2025-11-25"));
     pub const V_2025_06_18: Self = Self(Cow::Borrowed("2025-06-18"));
     pub const V_2025_03_26: Self = Self(Cow::Borrowed("2025-03-26"));
     pub const V_2024_11_05: Self = Self(Cow::Borrowed("2024-11-05"));
-    pub const LATEST: Self = Self::V_2025_06_18;
+    pub const LATEST: Self = Self::V_2025_11_25;
 
     /// All protocol versions known to this SDK.
-    pub const KNOWN_VERSIONS: &[Self] =
-        &[Self::V_2024_11_05, Self::V_2025_03_26, Self::V_2025_06_18];
+    pub const KNOWN_VERSIONS: &[Self] = &[
+        Self::V_2024_11_05,
+        Self::V_2025_03_26,
+        Self::V_2025_06_18,
+        Self::V_2025_11_25,
+    ];
 
     /// Returns the string representation of this protocol version.
     pub fn as_str(&self) -> &str {
@@ -185,6 +192,7 @@ impl<'de> Deserialize<'de> for ProtocolVersion {
             "2024-11-05" => return Ok(ProtocolVersion::V_2024_11_05),
             "2025-03-26" => return Ok(ProtocolVersion::V_2025_03_26),
             "2025-06-18" => return Ok(ProtocolVersion::V_2025_06_18),
+            "2025-11-25" => return Ok(ProtocolVersion::V_2025_11_25),
             _ => {}
         }
         Ok(ProtocolVersion(Cow::Owned(s)))
@@ -196,6 +204,7 @@ impl<'de> Deserialize<'de> for ProtocolVersion {
 /// This is commonly used for request IDs and other identifiers in JSON-RPC
 /// where the specification allows both numeric and string values.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
 pub enum NumberOrString {
     /// A numeric identifier
     Number(i64),
@@ -292,6 +301,7 @@ pub type RequestId = NumberOrString;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Hash, Eq)]
 #[serde(transparent)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct ProgressToken(pub NumberOrString);
 
 // =============================================================================
@@ -338,6 +348,7 @@ impl<M, P> GetExtensions for Request<M, P> {
 
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct RequestOptionalParam<M = String, P = JsonObject> {
     pub method: M,
     // #[serde(skip_serializing_if = "Option::is_none")]
@@ -361,6 +372,7 @@ impl<M: Default, P> RequestOptionalParam<M, P> {
 
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct RequestNoParam<M = String> {
     pub method: M,
     /// extensions will carry anything possible in the context, including [`Meta`]
@@ -403,6 +415,7 @@ impl<M: Default, P> Notification<M, P> {
 
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct NotificationNoParam<M = String> {
     pub method: M,
     /// extensions will carry anything possible in the context, including [`Meta`]
@@ -414,6 +427,7 @@ pub struct NotificationNoParam<M = String> {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct JsonRpcRequest<R = Request> {
     pub jsonrpc: JsonRpcVersion2_0,
     pub id: RequestId,
@@ -435,6 +449,7 @@ impl<R> JsonRpcRequest<R> {
 type DefaultResponse = JsonObject;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct JsonRpcResponse<R = JsonObject> {
     pub jsonrpc: JsonRpcVersion2_0,
     pub id: RequestId,
@@ -443,6 +458,7 @@ pub struct JsonRpcResponse<R = JsonObject> {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct JsonRpcError {
     pub jsonrpc: JsonRpcVersion2_0,
     pub id: RequestId,
@@ -462,6 +478,7 @@ impl JsonRpcError {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct JsonRpcNotification<N = Notification> {
     pub jsonrpc: JsonRpcVersion2_0,
     #[serde(flatten)]
@@ -475,6 +492,7 @@ pub struct JsonRpcNotification<N = Notification> {
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(transparent)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct ErrorCode(pub i32);
 
 impl ErrorCode {
@@ -493,6 +511,7 @@ impl ErrorCode {
 /// providing a standardized way to communicate errors between clients and servers.
 #[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct ErrorData {
     /// The error type that occurred (using standard JSON-RPC error codes)
     pub code: ErrorCode,
@@ -552,6 +571,7 @@ impl ErrorData {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(untagged)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
 pub enum JsonRpcMessage<Req = Request, Resp = DefaultResponse, Noti = Notification> {
     /// A single request expecting a response
     Request(JsonRpcRequest<Req>),
@@ -651,6 +671,7 @@ impl From<EmptyResult> for () {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(transparent)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct CustomResult(pub Value);
 
 impl CustomResult {
@@ -667,6 +688,7 @@ impl CustomResult {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct CancelledNotificationParam {
     pub request_id: RequestId,
     pub reason: Option<String>,
@@ -691,6 +713,7 @@ pub type CancelledNotification =
 /// deserialize them into domain-specific types.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct CustomNotification {
     pub method: String,
     pub params: Option<Value>,
@@ -725,6 +748,7 @@ impl CustomNotification {
 /// deserialize them into domain-specific types.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct CustomRequest {
     pub method: String,
     pub params: Option<Value>,
@@ -889,6 +913,18 @@ impl Default for ClientInfo {
     }
 }
 
+/// Icon themes supported by the MCP specification
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Hash, Copy)]
+#[serde(rename_all = "lowercase")] //match spec
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum IconTheme {
+    /// Indicates the icon is designed to be used with a light background
+    Light,
+    /// Indicates the icon is designed to be used with a dark background
+    Dark,
+}
+
 /// A URL pointing to an icon resource or a base64-encoded data URI.
 ///
 /// Clients that support rendering icons MUST support at least the following MIME types:
@@ -911,6 +947,10 @@ pub struct Icon {
     /// Size specification, each string should be in WxH format (e.g., `\"48x48\"`, `\"96x96\"`) or `\"any\"` for scalable formats like SVG
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sizes: Option<Vec<String>>,
+    /// Optional specifier for the theme this icon is designed for
+    /// If not provided, the client should assume the icon can be used with any theme.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme: Option<IconTheme>,
 }
 
 impl Icon {
@@ -920,6 +960,7 @@ impl Icon {
             src: src.into(),
             mime_type: None,
             sizes: None,
+            theme: None,
         }
     }
 
@@ -932,6 +973,12 @@ impl Icon {
     /// Set the sizes.
     pub fn with_sizes(mut self, sizes: Vec<String>) -> Self {
         self.sizes = Some(sizes);
+        self
+    }
+
+    /// Set the theme.
+    pub fn with_theme(mut self, theme: IconTheme) -> Self {
+        self.theme = Some(theme);
         self
     }
 }
@@ -1050,6 +1097,7 @@ const_string!(ProgressNotificationMethod = "notifications/progress");
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct ProgressNotificationParam {
     pub progress_token: ProgressToken,
     /// The progress thus far. This should increase every time progress is made, even if the total is unknown.
@@ -1097,6 +1145,7 @@ macro_rules! paginated_result {
         #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
         #[serde(rename_all = "camelCase")]
         #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+        #[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
         pub struct $t {
             #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
             pub meta: Option<Meta>,
@@ -1262,6 +1311,16 @@ pub struct UnsubscribeRequestParams {
     pub uri: String,
 }
 
+impl UnsubscribeRequestParams {
+    /// Creates a new `UnsubscribeRequestParams` for the given URI.
+    pub fn new(uri: impl Into<String>) -> Self {
+        Self {
+            meta: None,
+            uri: uri.into(),
+        }
+    }
+}
+
 impl RequestParamsMeta for UnsubscribeRequestParams {
     fn meta(&self) -> Option<&Meta> {
         self.meta.as_ref()
@@ -1283,6 +1342,7 @@ const_string!(ResourceUpdatedNotificationMethod = "notifications/resources/updat
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct ResourceUpdatedNotificationParam {
     /// The URI of the resource that was updated
     pub uri: String,
@@ -1382,6 +1442,7 @@ pub type ToolListChangedNotification = NotificationNoParam<ToolListChangedNotifi
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Copy)]
 #[serde(rename_all = "lowercase")] //match spec
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
 pub enum LoggingLevel {
     Debug,
     Info,
@@ -1435,6 +1496,7 @@ const_string!(LoggingMessageNotificationMethod = "notifications/message");
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct LoggingMessageNotificationParam {
     /// The severity level of this log message
     pub level: LoggingLevel,
@@ -1480,6 +1542,7 @@ pub type CreateMessageRequest = Request<CreateMessageRequestMethod, CreateMessag
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
 pub enum Role {
     /// A human user or client making a request
     User,
@@ -1488,22 +1551,18 @@ pub enum Role {
 }
 
 /// Tool selection mode (SEP-1577).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
 pub enum ToolChoiceMode {
     /// Model decides whether to use tools
+    #[default]
     Auto,
     /// Model must use at least one tool
     Required,
     /// Model must not use tools
     None,
-}
-
-impl Default for ToolChoiceMode {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 /// Tool choice configuration (SEP-1577).
@@ -1540,6 +1599,7 @@ impl ToolChoice {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
 pub enum SamplingContent<T> {
     Single(T),
     Multiple(Vec<T>),
@@ -1655,6 +1715,7 @@ pub struct SamplingMessage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
 pub enum SamplingMessageContent {
     Text(RawTextContent),
     Image(RawImageContent),
@@ -1782,6 +1843,7 @@ impl TryFrom<Content> for SamplingContent<SamplingMessageContent> {
 /// should be provided to the LLM when processing sampling requests.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
 pub enum ContextInclusion {
     /// Include context from all connected MCP servers
     #[serde(rename = "allServers")]
@@ -2109,6 +2171,7 @@ impl ModelHint {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct CompletionContext {
     /// Previously resolved argument values that can inform completion suggestions
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2199,6 +2262,7 @@ pub type CompleteRequest = Request<CompleteRequestMethod, CompleteRequestParams>
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct CompletionInfo {
     pub values: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2292,6 +2356,7 @@ impl CompleteResult {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(tag = "type")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
 pub enum Reference {
     #[serde(rename = "ref/resource")]
     Resource(ResourceReference),
@@ -2343,6 +2408,7 @@ impl Reference {
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct ResourceReference {
     pub uri: String,
 }
@@ -2356,10 +2422,27 @@ pub struct PromptReference {
     pub title: Option<String>,
 }
 
+impl PromptReference {
+    /// Creates a new `PromptReference` with the given name. `title` defaults to `None`.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            title: None,
+        }
+    }
+
+    /// Sets the human-readable title for this prompt reference.
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+}
+
 const_string!(CompleteRequestMethod = "completion/complete");
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct ArgumentInfo {
     pub name: String,
     pub value: String,
@@ -2378,6 +2461,22 @@ pub struct Root {
     pub name: Option<String>,
 }
 
+impl Root {
+    /// Creates a new `Root` with the given URI. `name` defaults to `None`.
+    pub fn new(uri: impl Into<String>) -> Self {
+        Self {
+            uri: uri.into(),
+            name: None,
+        }
+    }
+
+    /// Sets the human-readable name for this root.
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
+    }
+}
+
 const_string!(ListRootsRequestMethod = "roots/list");
 pub type ListRootsRequest = RequestNoParam<ListRootsRequestMethod>;
 
@@ -2387,6 +2486,13 @@ pub type ListRootsRequest = RequestNoParam<ListRootsRequestMethod>;
 #[non_exhaustive]
 pub struct ListRootsResult {
     pub roots: Vec<Root>,
+}
+
+impl ListRootsResult {
+    /// Creates a new `ListRootsResult` with the given roots.
+    pub fn new(roots: Vec<Root>) -> Self {
+        Self { roots }
+    }
 }
 
 const_string!(RootsListChangedNotificationMethod = "notifications/roots/list_changed");
@@ -2411,6 +2517,7 @@ const_string!(ElicitationCompletionNotificationMethod = "notifications/elicitati
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
 pub enum ElicitationAction {
     /// User accepts the request and provides the requested information
     Accept,
@@ -2522,6 +2629,7 @@ impl TryFrom<CreateElicitationRequestParamDeserializeHelper> for CreateElicitati
     try_from = "CreateElicitationRequestParamDeserializeHelper"
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
 pub enum CreateElicitationRequestParams {
     #[serde(rename = "form", rename_all = "camelCase")]
     FormElicitationParams {
@@ -2582,6 +2690,7 @@ pub type CreateElicitationRequestParam = CreateElicitationRequestParams;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct CreateElicitationResult {
     /// The user's decision on how to handle the elicitation request
     pub action: ElicitationAction,
@@ -2591,6 +2700,10 @@ pub struct CreateElicitationResult {
     /// Only present when action is Accept.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<Value>,
+
+    /// Optional protocol-level metadata for this result.
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Meta>,
 }
 
 impl CreateElicitationResult {
@@ -2599,12 +2712,19 @@ impl CreateElicitationResult {
         Self {
             action,
             content: None,
+            meta: None,
         }
     }
 
     /// Set the content on this result.
     pub fn with_content(mut self, content: Value) -> Self {
         self.content = Some(content);
+        self
+    }
+
+    /// Set the metadata on this result.
+    pub fn with_meta(mut self, meta: Meta) -> Self {
+        self.meta = Some(meta);
         self
     }
 }
@@ -2617,6 +2737,7 @@ pub type CreateElicitationRequest =
 #[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct ElicitationResponseNotificationParam {
     pub elicitation_id: String,
 }
@@ -2642,12 +2763,13 @@ pub type ElicitationCompletionNotification =
 ///
 /// Contains the content returned by the tool execution and an optional
 /// flag indicating whether the operation resulted in an error.
-#[derive(Default, Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Default, Debug, Serialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct CallToolResult {
     /// The content returned by the tool (text, images, etc.)
+    #[serde(default)]
     pub content: Vec<Content>,
     /// An optional JSON object that represents the structured result of the tool call
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2658,6 +2780,48 @@ pub struct CallToolResult {
     /// Optional protocol-level metadata for this result
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<Meta>,
+}
+
+// Custom Deserialize implementation that:
+// 1. Defaults `content` to `[]` when the field is missing (lenient per Postel's law)
+// 2. Requires at least one known field to be present, so that `CallToolResult` doesn't
+//    greedily match arbitrary JSON objects when used inside `#[serde(untagged)]` enums
+//    (e.g. `ServerResult`), which would shadow `CustomResult`.
+impl<'de> Deserialize<'de> for CallToolResult {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Helper {
+            content: Option<Vec<Content>>,
+            structured_content: Option<Value>,
+            is_error: Option<bool>,
+            #[serde(rename = "_meta")]
+            meta: Option<Meta>,
+        }
+
+        let helper = Helper::deserialize(deserializer)?;
+
+        if helper.content.is_none()
+            && helper.structured_content.is_none()
+            && helper.is_error.is_none()
+            && helper.meta.is_none()
+        {
+            return Err(serde::de::Error::custom(
+                "expected at least one known CallToolResult field \
+                 (content, structuredContent, isError, or _meta)",
+            ));
+        }
+
+        Ok(CallToolResult {
+            content: helper.content.unwrap_or_default(),
+            structured_content: helper.structured_content,
+            is_error: helper.is_error,
+            meta: helper.meta,
+        })
+    }
 }
 
 impl CallToolResult {
@@ -2940,6 +3104,7 @@ pub type GetTaskInfoRequest = Request<GetTaskInfoMethod, GetTaskInfoParams>;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct GetTaskInfoParams {
     /// Protocol-level metadata for this request (SEP-1319)
     #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
@@ -2969,6 +3134,7 @@ pub type GetTaskResultRequest = Request<GetTaskResultMethod, GetTaskResultParams
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct GetTaskResultParams {
     /// Protocol-level metadata for this request (SEP-1319)
     #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
@@ -2995,6 +3161,7 @@ pub type CancelTaskRequest = Request<CancelTaskMethod, CancelTaskParams>;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct CancelTaskParams {
     /// Protocol-level metadata for this request (SEP-1319)
     #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
@@ -3069,6 +3236,7 @@ macro_rules! ts_union {
         #[derive(Debug, Serialize, Deserialize, Clone)]
         #[serde(untagged)]
         #[allow(clippy::large_enum_variant)]
+        #[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
         #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
         pub enum $U {
             $($declared)*
@@ -3198,16 +3366,16 @@ ts_union!(
     | ListResourcesResult
     | ListResourceTemplatesResult
     | ReadResourceResult
-    | CallToolResult
     | ListToolsResult
     | CreateElicitationResult
-    | EmptyResult
     | CreateTaskResult
     | ListTasksResult
     | GetTaskResult
     | CancelTaskResult
-    | CustomResult
+    | CallToolResult
     | GetTaskPayloadResult
+    | EmptyResult
+    | CustomResult
     ;
 );
 
@@ -3583,7 +3751,11 @@ mod tests {
     fn test_protocol_version_order() {
         let v1 = ProtocolVersion::V_2024_11_05;
         let v2 = ProtocolVersion::V_2025_03_26;
+        let v3 = ProtocolVersion::V_2025_06_18;
+        let v4 = ProtocolVersion::V_2025_11_25;
         assert!(v1 < v2);
+        assert!(v2 < v3);
+        assert!(v3 < v4);
     }
 
     #[test]
@@ -3592,12 +3764,14 @@ mod tests {
             src: "https://example.com/icon.png".to_string(),
             mime_type: Some("image/png".to_string()),
             sizes: Some(vec!["48x48".to_string()]),
+            theme: Some(IconTheme::Light),
         };
 
         let json = serde_json::to_value(&icon).unwrap();
         assert_eq!(json["src"], "https://example.com/icon.png");
         assert_eq!(json["mimeType"], "image/png");
         assert_eq!(json["sizes"][0], "48x48");
+        assert_eq!(json["theme"], "light");
 
         // Test deserialization
         let deserialized: Icon = serde_json::from_value(json).unwrap();
@@ -3610,12 +3784,14 @@ mod tests {
             src: "data:image/svg+xml;base64,PHN2Zy8+".to_string(),
             mime_type: None,
             sizes: None,
+            theme: None,
         };
 
         let json = serde_json::to_value(&icon).unwrap();
         assert_eq!(json["src"], "data:image/svg+xml;base64,PHN2Zy8+");
         assert!(json.get("mimeType").is_none());
         assert!(json.get("sizes").is_none());
+        assert!(json.get("theme").is_none());
     }
 
     #[test]
@@ -3630,11 +3806,13 @@ mod tests {
                     src: "https://example.com/icon.png".to_string(),
                     mime_type: Some("image/png".to_string()),
                     sizes: Some(vec!["48x48".to_string()]),
+                    theme: Some(IconTheme::Dark),
                 },
                 Icon {
                     src: "https://example.com/icon.svg".to_string(),
                     mime_type: Some("image/svg+xml".to_string()),
                     sizes: Some(vec!["any".to_string()]),
+                    theme: Some(IconTheme::Light),
                 },
             ]),
             website_url: Some("https://example.com".to_string()),
@@ -3649,6 +3827,8 @@ mod tests {
         assert_eq!(json["icons"][0]["sizes"][0], "48x48");
         assert_eq!(json["icons"][1]["mimeType"], "image/svg+xml");
         assert_eq!(json["icons"][1]["sizes"][0], "any");
+        assert_eq!(json["icons"][0]["theme"], "dark");
+        assert_eq!(json["icons"][1]["theme"], "light");
     }
 
     #[test]
@@ -3681,6 +3861,7 @@ mod tests {
                     src: "https://example.com/server.png".to_string(),
                     mime_type: Some("image/png".to_string()),
                     sizes: Some(vec!["48x48".to_string()]),
+                    theme: Some(IconTheme::Light),
                 }]),
                 website_url: Some("https://docs.example.com".to_string()),
             },
@@ -3694,6 +3875,7 @@ mod tests {
             "https://example.com/server.png"
         );
         assert_eq!(json["serverInfo"]["icons"][0]["sizes"][0], "48x48");
+        assert_eq!(json["serverInfo"]["icons"][0]["theme"], "light");
         assert_eq!(json["serverInfo"]["websiteUrl"], "https://docs.example.com");
     }
 

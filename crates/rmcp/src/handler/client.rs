@@ -4,7 +4,9 @@ use std::sync::Arc;
 use crate::{
     error::ErrorData as McpError,
     model::*,
-    service::{NotificationContext, RequestContext, RoleClient, Service, ServiceRole},
+    service::{
+        MaybeSendFuture, NotificationContext, RequestContext, RoleClient, Service, ServiceRole,
+    },
 };
 
 impl<H: ClientHandler> Service<RoleClient> for H {
@@ -83,7 +85,7 @@ pub trait ClientHandler: Sized + Send + Sync + 'static {
     fn ping(
         &self,
         context: RequestContext<RoleClient>,
-    ) -> impl Future<Output = Result<(), McpError>> + Send + '_ {
+    ) -> impl Future<Output = Result<(), McpError>> + MaybeSendFuture + '_ {
         std::future::ready(Ok(()))
     }
 
@@ -91,7 +93,7 @@ pub trait ClientHandler: Sized + Send + Sync + 'static {
         &self,
         params: CreateMessageRequestParams,
         context: RequestContext<RoleClient>,
-    ) -> impl Future<Output = Result<CreateMessageResult, McpError>> + Send + '_ {
+    ) -> impl Future<Output = Result<CreateMessageResult, McpError>> + MaybeSendFuture + '_ {
         std::future::ready(Err(
             McpError::method_not_found::<CreateMessageRequestMethod>(),
         ))
@@ -100,7 +102,7 @@ pub trait ClientHandler: Sized + Send + Sync + 'static {
     fn list_roots(
         &self,
         context: RequestContext<RoleClient>,
-    ) -> impl Future<Output = Result<ListRootsResult, McpError>> + Send + '_ {
+    ) -> impl Future<Output = Result<ListRootsResult, McpError>> + MaybeSendFuture + '_ {
         std::future::ready(Ok(ListRootsResult::default()))
     }
 
@@ -144,6 +146,7 @@ pub trait ClientHandler: Sized + Send + Sync + 'static {
     ///          Ok(CreateElicitationResult {
     ///             action: ElicitationAction::Accept,
     ///              content: Some(user_input),
+    ///              meta: None,
     ///          })
     ///         }
     ///         CreateElicitationRequestParam::UrlElicitationParam {meta, message, url, elicitation_id,} => {
@@ -152,6 +155,7 @@ pub trait ClientHandler: Sized + Send + Sync + 'static {
     ///          Ok(CreateElicitationResult {
     ///              action: ElicitationAction::Accept,
     ///             content: None,
+    ///             meta: None,
     ///             })
     ///         }
     ///     }
@@ -162,12 +166,14 @@ pub trait ClientHandler: Sized + Send + Sync + 'static {
         &self,
         request: CreateElicitationRequestParams,
         context: RequestContext<RoleClient>,
-    ) -> impl Future<Output = Result<CreateElicitationResult, McpError>> + Send + '_ {
+    ) -> impl Future<Output = Result<CreateElicitationResult, McpError>> + MaybeSendFuture + '_
+    {
         // Default implementation declines all requests - real clients should override this
         let _ = (request, context);
         std::future::ready(Ok(CreateElicitationResult {
             action: ElicitationAction::Decline,
             content: None,
+            meta: None,
         }))
     }
 
@@ -175,7 +181,7 @@ pub trait ClientHandler: Sized + Send + Sync + 'static {
         &self,
         request: CustomRequest,
         context: RequestContext<RoleClient>,
-    ) -> impl Future<Output = Result<CustomResult, McpError>> + Send + '_ {
+    ) -> impl Future<Output = Result<CustomResult, McpError>> + MaybeSendFuture + '_ {
         let CustomRequest { method, .. } = request;
         let _ = context;
         std::future::ready(Err(McpError::new(
@@ -189,46 +195,46 @@ pub trait ClientHandler: Sized + Send + Sync + 'static {
         &self,
         params: CancelledNotificationParam,
         context: NotificationContext<RoleClient>,
-    ) -> impl Future<Output = ()> + Send + '_ {
+    ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
         std::future::ready(())
     }
     fn on_progress(
         &self,
         params: ProgressNotificationParam,
         context: NotificationContext<RoleClient>,
-    ) -> impl Future<Output = ()> + Send + '_ {
+    ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
         std::future::ready(())
     }
     fn on_logging_message(
         &self,
         params: LoggingMessageNotificationParam,
         context: NotificationContext<RoleClient>,
-    ) -> impl Future<Output = ()> + Send + '_ {
+    ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
         std::future::ready(())
     }
     fn on_resource_updated(
         &self,
         params: ResourceUpdatedNotificationParam,
         context: NotificationContext<RoleClient>,
-    ) -> impl Future<Output = ()> + Send + '_ {
+    ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
         std::future::ready(())
     }
     fn on_resource_list_changed(
         &self,
         context: NotificationContext<RoleClient>,
-    ) -> impl Future<Output = ()> + Send + '_ {
+    ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
         std::future::ready(())
     }
     fn on_tool_list_changed(
         &self,
         context: NotificationContext<RoleClient>,
-    ) -> impl Future<Output = ()> + Send + '_ {
+    ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
         std::future::ready(())
     }
     fn on_prompt_list_changed(
         &self,
         context: NotificationContext<RoleClient>,
-    ) -> impl Future<Output = ()> + Send + '_ {
+    ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
         std::future::ready(())
     }
 
@@ -236,14 +242,14 @@ pub trait ClientHandler: Sized + Send + Sync + 'static {
         &self,
         params: ElicitationResponseNotificationParam,
         context: NotificationContext<RoleClient>,
-    ) -> impl Future<Output = ()> + Send + '_ {
+    ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
         std::future::ready(())
     }
     fn on_custom_notification(
         &self,
         notification: CustomNotification,
         context: NotificationContext<RoleClient>,
-    ) -> impl Future<Output = ()> + Send + '_ {
+    ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
         let _ = (notification, context);
         std::future::ready(())
     }
@@ -269,7 +275,7 @@ macro_rules! impl_client_handler_for_wrapper {
             fn ping(
                 &self,
                 context: RequestContext<RoleClient>,
-            ) -> impl Future<Output = Result<(), McpError>> + Send + '_ {
+            ) -> impl Future<Output = Result<(), McpError>> + MaybeSendFuture + '_ {
                 (**self).ping(context)
             }
 
@@ -277,14 +283,14 @@ macro_rules! impl_client_handler_for_wrapper {
                 &self,
                 params: CreateMessageRequestParams,
                 context: RequestContext<RoleClient>,
-            ) -> impl Future<Output = Result<CreateMessageResult, McpError>> + Send + '_ {
+            ) -> impl Future<Output = Result<CreateMessageResult, McpError>> + MaybeSendFuture + '_ {
                 (**self).create_message(params, context)
             }
 
             fn list_roots(
                 &self,
                 context: RequestContext<RoleClient>,
-            ) -> impl Future<Output = Result<ListRootsResult, McpError>> + Send + '_ {
+            ) -> impl Future<Output = Result<ListRootsResult, McpError>> + MaybeSendFuture + '_ {
                 (**self).list_roots(context)
             }
 
@@ -292,7 +298,7 @@ macro_rules! impl_client_handler_for_wrapper {
                 &self,
                 request: CreateElicitationRequestParams,
                 context: RequestContext<RoleClient>,
-            ) -> impl Future<Output = Result<CreateElicitationResult, McpError>> + Send + '_ {
+            ) -> impl Future<Output = Result<CreateElicitationResult, McpError>> + MaybeSendFuture + '_ {
                 (**self).create_elicitation(request, context)
             }
 
@@ -300,7 +306,7 @@ macro_rules! impl_client_handler_for_wrapper {
                 &self,
                 request: CustomRequest,
                 context: RequestContext<RoleClient>,
-            ) -> impl Future<Output = Result<CustomResult, McpError>> + Send + '_ {
+            ) -> impl Future<Output = Result<CustomResult, McpError>> + MaybeSendFuture + '_ {
                 (**self).on_custom_request(request, context)
             }
 
@@ -308,7 +314,7 @@ macro_rules! impl_client_handler_for_wrapper {
                 &self,
                 params: CancelledNotificationParam,
                 context: NotificationContext<RoleClient>,
-            ) -> impl Future<Output = ()> + Send + '_ {
+            ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
                 (**self).on_cancelled(params, context)
             }
 
@@ -316,7 +322,7 @@ macro_rules! impl_client_handler_for_wrapper {
                 &self,
                 params: ProgressNotificationParam,
                 context: NotificationContext<RoleClient>,
-            ) -> impl Future<Output = ()> + Send + '_ {
+            ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
                 (**self).on_progress(params, context)
             }
 
@@ -324,7 +330,7 @@ macro_rules! impl_client_handler_for_wrapper {
                 &self,
                 params: LoggingMessageNotificationParam,
                 context: NotificationContext<RoleClient>,
-            ) -> impl Future<Output = ()> + Send + '_ {
+            ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
                 (**self).on_logging_message(params, context)
             }
 
@@ -332,28 +338,28 @@ macro_rules! impl_client_handler_for_wrapper {
                 &self,
                 params: ResourceUpdatedNotificationParam,
                 context: NotificationContext<RoleClient>,
-            ) -> impl Future<Output = ()> + Send + '_ {
+            ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
                 (**self).on_resource_updated(params, context)
             }
 
             fn on_resource_list_changed(
                 &self,
                 context: NotificationContext<RoleClient>,
-            ) -> impl Future<Output = ()> + Send + '_ {
+            ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
                 (**self).on_resource_list_changed(context)
             }
 
             fn on_tool_list_changed(
                 &self,
                 context: NotificationContext<RoleClient>,
-            ) -> impl Future<Output = ()> + Send + '_ {
+            ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
                 (**self).on_tool_list_changed(context)
             }
 
             fn on_prompt_list_changed(
                 &self,
                 context: NotificationContext<RoleClient>,
-            ) -> impl Future<Output = ()> + Send + '_ {
+            ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
                 (**self).on_prompt_list_changed(context)
             }
 
@@ -361,7 +367,7 @@ macro_rules! impl_client_handler_for_wrapper {
                 &self,
                 notification: CustomNotification,
                 context: NotificationContext<RoleClient>,
-            ) -> impl Future<Output = ()> + Send + '_ {
+            ) -> impl Future<Output = ()> + MaybeSendFuture + '_ {
                 (**self).on_custom_notification(notification, context)
             }
 

@@ -6,6 +6,7 @@ use super::{Annotated, Icon, Meta};
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct RawResource {
     /// URI representing the resource location (e.g., "file:///path/to/file" or "str:///content")
     pub uri: String,
@@ -39,6 +40,7 @@ pub type Resource = Annotated<RawResource>;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct RawResourceTemplate {
     pub uri_template: String,
     pub name: String,
@@ -58,6 +60,7 @@ pub type ResourceTemplate = Annotated<RawResourceTemplate>;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(untagged)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
 pub enum ResourceContents {
     #[serde(rename_all = "camelCase")]
     TextResourceContents {
@@ -214,6 +217,7 @@ mod tests {
     use serde_json;
 
     use super::*;
+    use crate::model::IconTheme;
 
     #[test]
     fn test_resource_serialization() {
@@ -265,6 +269,7 @@ mod tests {
                 src: "https://example.com/icon.png".to_string(),
                 mime_type: Some("image/png".to_string()),
                 sizes: Some(vec!["48x48".to_string()]),
+                theme: Some(IconTheme::Light),
             }]),
         };
 
@@ -272,6 +277,7 @@ mod tests {
         assert!(json["icons"].is_array());
         assert_eq!(json["icons"][0]["src"], "https://example.com/icon.png");
         assert_eq!(json["icons"][0]["sizes"][0], "48x48");
+        assert_eq!(json["icons"][0]["theme"], "light");
     }
 
     #[test]

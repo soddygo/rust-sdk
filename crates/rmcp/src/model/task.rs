@@ -7,6 +7,7 @@ use super::Meta;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_enums, reason = "intentionally exhaustive")]
 pub enum TaskStatus {
     /// The receiver accepted the request and is currently working on it.
     #[default]
@@ -110,6 +111,7 @@ impl CreateTaskResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct GetTaskResult {
     #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<Meta>,
@@ -123,7 +125,7 @@ pub struct GetTaskResult {
 /// (e.g., `CallToolResult` for `tools/call`). This is represented as
 /// an open object. The payload is the original request's result
 /// serialized as a JSON value.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
 pub struct GetTaskPayloadResult(pub Value);
@@ -135,12 +137,32 @@ impl GetTaskPayloadResult {
     }
 }
 
+// Custom Deserialize that always fails, so that `GetTaskPayloadResult` is skipped
+// during `#[serde(untagged)]` enum deserialization (e.g. `ServerResult`).
+// The payload has the same JSON shape as `CustomResult(Value)`, so they are
+// indistinguishable.  `CustomResult` acts as the catch-all instead.
+// `GetTaskPayloadResult` should be constructed programmatically via `::new()`.
+impl<'de> serde::Deserialize<'de> for GetTaskPayloadResult {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Consume the value so the deserializer state stays consistent.
+        serde::de::IgnoredAny::deserialize(deserializer)?;
+        Err(serde::de::Error::custom(
+            "GetTaskPayloadResult cannot be deserialized directly; \
+             use CustomResult as the catch-all",
+        ))
+    }
+}
+
 /// Response to a `tasks/cancel` request.
 ///
 /// Per spec, `CancelTaskResult = allOf[Result, Task]` — same shape as `GetTaskResult`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct CancelTaskResult {
     #[serde(rename = "_meta", default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<Meta>,
@@ -152,6 +174,7 @@ pub struct CancelTaskResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct TaskList {
     pub tasks: Vec<Task>,
     #[serde(skip_serializing_if = "Option::is_none")]

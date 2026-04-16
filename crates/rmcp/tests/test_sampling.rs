@@ -1,3 +1,4 @@
+#![cfg(not(feature = "local"))]
 mod common;
 
 use anyhow::Result;
@@ -7,7 +8,6 @@ use rmcp::{
     model::*,
     service::{RequestContext, Service},
 };
-use tokio_util::sync::CancellationToken;
 
 #[tokio::test]
 async fn test_basic_sampling_message_creation() -> Result<()> {
@@ -125,13 +125,7 @@ async fn test_sampling_integration_with_test_handlers() -> Result<()> {
     let result = handler
         .handle_request(
             request.clone(),
-            RequestContext {
-                peer: client.peer().clone(),
-                ct: CancellationToken::new(),
-                id: NumberOrString::Number(1),
-                meta: Default::default(),
-                extensions: Default::default(),
-            },
+            RequestContext::new(NumberOrString::Number(1), client.peer().clone()),
         )
         .await?;
 
@@ -188,13 +182,7 @@ async fn test_sampling_no_context_inclusion() -> Result<()> {
     let result = handler
         .handle_request(
             request.clone(),
-            RequestContext {
-                peer: client.peer().clone(),
-                ct: CancellationToken::new(),
-                id: NumberOrString::Number(2),
-                meta: Default::default(),
-                extensions: Default::default(),
-            },
+            RequestContext::new(NumberOrString::Number(2), client.peer().clone()),
         )
         .await?;
 
@@ -252,13 +240,7 @@ async fn test_sampling_error_invalid_message_sequence() -> Result<()> {
     let result = handler
         .handle_request(
             request.clone(),
-            RequestContext {
-                peer: client.peer().clone(),
-                ct: CancellationToken::new(),
-                id: NumberOrString::Number(3),
-                meta: Default::default(),
-                extensions: Default::default(),
-            },
+            RequestContext::new(NumberOrString::Number(3), client.peer().clone()),
         )
         .await;
 

@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     num::ParseIntError,
-    sync::Arc,
     time::Duration,
 };
 
@@ -29,12 +28,14 @@ use crate::{
 };
 
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct LocalSessionManager {
     pub sessions: tokio::sync::RwLock<HashMap<SessionId, LocalSessionHandle>>,
     pub session_config: SessionConfig,
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum LocalSessionManagerError {
     #[error("Session not found: {0}")]
     SessionNotFound(SessionId),
@@ -148,6 +149,7 @@ impl std::fmt::Display for EventId {
 }
 
 #[derive(Debug, Clone, Error)]
+#[non_exhaustive]
 pub enum EventIdParseError {
     #[error("Invalid index: {0}")]
     InvalidIndex(ParseIntError),
@@ -219,21 +221,13 @@ impl CachedTx {
 
     async fn send(&mut self, message: ServerJsonRpcMessage) {
         let event_id = self.next_event_id();
-        let message = ServerSseMessage {
-            event_id: Some(event_id.to_string()),
-            message: Some(Arc::new(message)),
-            retry: None,
-        };
+        let message = ServerSseMessage::new(event_id.to_string(), message);
         self.cache_and_send(message).await;
     }
 
     async fn send_priming(&mut self, retry: Duration) {
         let event_id = self.next_event_id();
-        let message = ServerSseMessage {
-            event_id: Some(event_id.to_string()),
-            message: None,
-            retry: Some(retry),
-        };
+        let message = ServerSseMessage::priming(event_id.to_string(), retry);
         self.cache_and_send(message).await;
     }
 
@@ -310,6 +304,7 @@ impl LocalSessionWorker {
 }
 
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum SessionError {
     #[error("Invalid request id: {0}")]
     DuplicatedRequestId(HttpRequestId),
@@ -339,6 +334,7 @@ enum OutboundChannel {
     Common,
 }
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct StreamableHttpMessageReceiver {
     pub http_request_id: Option<HttpRequestId>,
     pub inner: Receiver<ServerSseMessage>,
@@ -474,7 +470,7 @@ impl LocalSessionWorker {
                 {
                     OutboundChannel::RequestWise {
                         id: *id,
-                        close: false,
+                        close: true,
                     }
                 } else {
                     OutboundChannel::Common
@@ -487,7 +483,7 @@ impl LocalSessionWorker {
                 {
                     OutboundChannel::RequestWise {
                         id: *id,
-                        close: false,
+                        close: true,
                     }
                 } else {
                     OutboundChannel::Common
@@ -505,7 +501,11 @@ impl LocalSessionWorker {
                 if let Some(request_wise) = self.tx_router.get_mut(&id) {
                     request_wise.tx.send(message).await;
                     if close {
-                        self.tx_router.remove(&id);
+                        if let Some(channel) = self.tx_router.remove(&id) {
+                            for resource in channel.resources {
+                                self.resource_router.remove(&resource);
+                            }
+                        }
                     }
                 } else {
                     return Err(SessionError::ChannelClosed(Some(id)));
@@ -657,6 +657,7 @@ impl LocalSessionWorker {
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum SessionEvent {
     ClientMessage {
         message: ClientJsonRpcMessage,
@@ -1059,22 +1060,34 @@ impl Worker for LocalSessionWorker {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SessionConfig {
     /// the capacity of the channel for the session. Default is 16.
     pub channel_capacity: usize,
-    /// if set, the session will be closed after this duration of inactivity.
+    /// The session will be closed after this duration of inactivity.
+    ///
+    /// This serves as a safety net for cleaning up sessions whose HTTP
+    /// connections have silently dropped (e.g., due to an HTTP/2
+    /// `RST_STREAM`). Without a timeout, such sessions become zombies:
+    /// the session worker keeps running indefinitely because the session
+    /// handle's sender is still held in the session manager, preventing
+    /// the worker's event channel from closing.
+    ///
+    /// Defaults to 5 minutes. Set to `None` to disable (not recommended
+    /// for long-running servers behind proxies).
     pub keep_alive: Option<Duration>,
 }
 
 impl SessionConfig {
     pub const DEFAULT_CHANNEL_CAPACITY: usize = 16;
+    pub const DEFAULT_KEEP_ALIVE: Duration = Duration::from_secs(300);
 }
 
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
             channel_capacity: Self::DEFAULT_CHANNEL_CAPACITY,
-            keep_alive: None,
+            keep_alive: Some(Self::DEFAULT_KEEP_ALIVE),
         }
     }
 }

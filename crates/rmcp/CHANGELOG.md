@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0](https://github.com/modelcontextprotocol/rust-sdk/compare/rmcp-v1.3.0...rmcp-v1.4.0) - 2026-04-09
+
+### Added
+
+- add Default and constructors to ServerSseMessage ([#794](https://github.com/modelcontextprotocol/rust-sdk/pull/794))
+- add meta to elicitation results ([#792](https://github.com/modelcontextprotocol/rust-sdk/pull/792))
+- *(macros)* auto-generate get_info and default router ([#785](https://github.com/modelcontextprotocol/rust-sdk/pull/785))
+- *(transport)* add which_command for cross-platform executable resolution ([#774](https://github.com/modelcontextprotocol/rust-sdk/pull/774))
+- *(auth)* add StoredCredentials::new() constructor ([#778](https://github.com/modelcontextprotocol/rust-sdk/pull/778))
+
+### Fixed
+
+- *(server)* remove initialized notification gate to support Streamable HTTP ([#788](https://github.com/modelcontextprotocol/rust-sdk/pull/788))
+- default session keep_alive to 5 minutes ([#780](https://github.com/modelcontextprotocol/rust-sdk/pull/780))
+- *(http)* add host check ([#764](https://github.com/modelcontextprotocol/rust-sdk/pull/764))
+- exclude local feature from docs.rs build ([#782](https://github.com/modelcontextprotocol/rust-sdk/pull/782))
+
+### Other
+
+- update Rust toolchain to 1.92 ([#797](https://github.com/modelcontextprotocol/rust-sdk/pull/797))
+- unify IntoCallToolResult Result impls ([#787](https://github.com/modelcontextprotocol/rust-sdk/pull/787))
+
+## [1.3.0](https://github.com/modelcontextprotocol/rust-sdk/compare/rmcp-v1.2.0...rmcp-v1.3.0) - 2026-03-24
+
+### Added
+
+- *(transport)* add Unix domain socket client for streamable HTTP ([#749](https://github.com/modelcontextprotocol/rust-sdk/pull/749))
+- *(auth)* implement SEP-2207 OIDC-flavored refresh token guidance ([#676](https://github.com/modelcontextprotocol/rust-sdk/pull/676))
+- add configuration for transparent session re-init ([#760](https://github.com/modelcontextprotocol/rust-sdk/pull/760))
+- add local feature for !Send tool handler support ([#740](https://github.com/modelcontextprotocol/rust-sdk/pull/740))
+
+### Fixed
+
+- prevent CallToolResult and GetTaskPayloadResult from shadowing CustomResult in untagged enums ([#771](https://github.com/modelcontextprotocol/rust-sdk/pull/771))
+- drain in-flight responses on stdin EOF ([#759](https://github.com/modelcontextprotocol/rust-sdk/pull/759))
+- remove default type param from StreamableHttpService ([#758](https://github.com/modelcontextprotocol/rust-sdk/pull/758))
+- use cfg-gated Send+Sync supertraits to avoid semver break ([#757](https://github.com/modelcontextprotocol/rust-sdk/pull/757))
+- *(rmcp)* surface JSON-RPC error bodies on HTTP 4xx responses ([#748](https://github.com/modelcontextprotocol/rust-sdk/pull/748))
+- default CallToolResult content to empty vec on missing field ([#752](https://github.com/modelcontextprotocol/rust-sdk/pull/752))
+- *(auth)* redact secrets in Debug output for StoredCredentials and StoredAuthorizationState ([#744](https://github.com/modelcontextprotocol/rust-sdk/pull/744))
+
+### Other
+
+- fix all clippy warnings across workspace ([#746](https://github.com/modelcontextprotocol/rust-sdk/pull/746))
+
+## [1.2.0](https://github.com/modelcontextprotocol/rust-sdk/compare/rmcp-v1.1.1...rmcp-v1.2.0) - 2026-03-11
+
+### Added
+
+- add missing constructors for non-exhaustive model types ([#739](https://github.com/modelcontextprotocol/rust-sdk/pull/739))
+- include granted scopes in OAuth refresh token request ([#731](https://github.com/modelcontextprotocol/rust-sdk/pull/731))
+
+### Fixed
+
+- handle ping requests sent before initialize handshake ([#745](https://github.com/modelcontextprotocol/rust-sdk/pull/745))
+- allow deserializing notifications without params field ([#729](https://github.com/modelcontextprotocol/rust-sdk/pull/729))
+
+### Other
+
+- *(deps)* update jsonwebtoken requirement from 9 to 10 ([#737](https://github.com/modelcontextprotocol/rust-sdk/pull/737))
+
 ## [1.1.1](https://github.com/modelcontextprotocol/rust-sdk/compare/rmcp-v1.1.0...rmcp-v1.1.1) - 2026-03-09
 
 ### Fixed

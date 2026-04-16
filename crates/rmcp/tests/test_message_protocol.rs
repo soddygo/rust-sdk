@@ -1,4 +1,5 @@
 //cargo test --test test_message_protocol --features "client server"
+#![cfg(not(feature = "local"))]
 
 mod common;
 use common::handlers::{TestClientHandler, TestServer};
@@ -7,7 +8,6 @@ use rmcp::{
     model::*,
     service::{RequestContext, Service},
 };
-use tokio_util::sync::CancellationToken;
 
 // Tests start here
 #[tokio::test]
@@ -47,13 +47,7 @@ async fn test_context_inclusion_integration() -> anyhow::Result<()> {
     let result = handler
         .handle_request(
             request.clone(),
-            RequestContext {
-                peer: client.peer().clone(),
-                ct: CancellationToken::new(),
-                id: NumberOrString::Number(1),
-                meta: Default::default(),
-                extensions: Default::default(),
-            },
+            RequestContext::new(NumberOrString::Number(1), client.peer().clone()),
         )
         .await?;
 
@@ -84,13 +78,7 @@ async fn test_context_inclusion_integration() -> anyhow::Result<()> {
     let result = handler
         .handle_request(
             request.clone(),
-            RequestContext {
-                peer: client.peer().clone(),
-                ct: CancellationToken::new(),
-                id: NumberOrString::Number(2),
-                meta: Default::default(),
-                extensions: Default::default(),
-            },
+            RequestContext::new(NumberOrString::Number(2), client.peer().clone()),
         )
         .await?;
 
@@ -121,13 +109,7 @@ async fn test_context_inclusion_integration() -> anyhow::Result<()> {
     let result = handler
         .handle_request(
             request.clone(),
-            RequestContext {
-                peer: client.peer().clone(),
-                ct: CancellationToken::new(),
-                id: NumberOrString::Number(3),
-                meta: Default::default(),
-                extensions: Default::default(),
-            },
+            RequestContext::new(NumberOrString::Number(3), client.peer().clone()),
         )
         .await?;
 
@@ -178,13 +160,7 @@ async fn test_context_inclusion_ignored_integration() -> anyhow::Result<()> {
     let result = handler
         .handle_request(
             request.clone(),
-            RequestContext {
-                peer: client.peer().clone(),
-                ct: CancellationToken::new(),
-                id: NumberOrString::Number(1),
-                meta: Meta::default(),
-                extensions: Default::default(),
-            },
+            RequestContext::new(NumberOrString::Number(1), client.peer().clone()),
         )
         .await?;
 
@@ -240,13 +216,7 @@ async fn test_message_sequence_integration() -> anyhow::Result<()> {
     let result = handler
         .handle_request(
             request.clone(),
-            RequestContext {
-                peer: client.peer().clone(),
-                ct: CancellationToken::new(),
-                id: NumberOrString::Number(1),
-                meta: Meta::default(),
-                extensions: Default::default(),
-            },
+            RequestContext::new(NumberOrString::Number(1), client.peer().clone()),
         )
         .await?;
 
@@ -306,13 +276,7 @@ async fn test_message_sequence_validation_integration() -> anyhow::Result<()> {
     let result = handler
         .handle_request(
             request.clone(),
-            RequestContext {
-                peer: client.peer().clone(),
-                ct: CancellationToken::new(),
-                id: NumberOrString::Number(1),
-                meta: Meta::default(),
-                extensions: Default::default(),
-            },
+            RequestContext::new(NumberOrString::Number(1), client.peer().clone()),
         )
         .await?;
 
@@ -329,13 +293,7 @@ async fn test_message_sequence_validation_integration() -> anyhow::Result<()> {
     let result = handler
         .handle_request(
             request.clone(),
-            RequestContext {
-                peer: client.peer().clone(),
-                ct: CancellationToken::new(),
-                id: NumberOrString::Number(2),
-                meta: Meta::default(),
-                extensions: Default::default(),
-            },
+            RequestContext::new(NumberOrString::Number(2), client.peer().clone()),
         )
         .await;
 
@@ -369,13 +327,7 @@ async fn test_selective_context_handling_integration() -> anyhow::Result<()> {
     let result = handler
         .handle_request(
             request.clone(),
-            RequestContext {
-                peer: client.peer().clone(),
-                ct: CancellationToken::new(),
-                id: NumberOrString::Number(1),
-                meta: Meta::default(),
-                extensions: Default::default(),
-            },
+            RequestContext::new(NumberOrString::Number(1), client.peer().clone()),
         )
         .await?;
 
@@ -404,13 +356,7 @@ async fn test_selective_context_handling_integration() -> anyhow::Result<()> {
     let result = handler
         .handle_request(
             request.clone(),
-            RequestContext {
-                peer: client.peer().clone(),
-                ct: CancellationToken::new(),
-                id: NumberOrString::Number(2),
-                meta: Meta::default(),
-                extensions: Default::default(),
-            },
+            RequestContext::new(NumberOrString::Number(2), client.peer().clone()),
         )
         .await?;
 
@@ -456,13 +402,7 @@ async fn test_context_inclusion() -> anyhow::Result<()> {
     let result = handler
         .handle_request(
             request.clone(),
-            RequestContext {
-                peer: client.peer().clone(),
-                ct: CancellationToken::new(),
-                id: NumberOrString::Number(1),
-                meta: Meta::default(),
-                extensions: Default::default(),
-            },
+            RequestContext::new(NumberOrString::Number(1), client.peer().clone()),
         )
         .await?;
 

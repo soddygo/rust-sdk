@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use crate::transport::common::http_header::HEADER_MCP_PROTOCOL_VERSION;
 
@@ -59,7 +59,8 @@ impl<'c> AsyncHttpClient<'c> for OAuthReqwestClient {
 const DEFAULT_EXCHANGE_URL: &str = "http://localhost";
 
 /// Stored credentials for OAuth2 authorization
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct StoredCredentials {
     pub client_id: String,
     pub token_response: Option<OAuthTokenResponse>,
@@ -67,6 +68,37 @@ pub struct StoredCredentials {
     pub granted_scopes: Vec<String>,
     #[serde(default)]
     pub token_received_at: Option<u64>,
+}
+
+impl std::fmt::Debug for StoredCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoredCredentials")
+            .field("client_id", &self.client_id)
+            .field(
+                "token_response",
+                &self.token_response.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("granted_scopes", &self.granted_scopes)
+            .field("token_received_at", &self.token_received_at)
+            .finish()
+    }
+}
+
+impl StoredCredentials {
+    /// Create a new `StoredCredentials` instance.
+    pub fn new(
+        client_id: String,
+        token_response: Option<OAuthTokenResponse>,
+        granted_scopes: Vec<String>,
+        token_received_at: Option<u64>,
+    ) -> Self {
+        Self {
+            client_id,
+            token_response,
+            granted_scopes,
+            token_received_at,
+        }
+    }
 }
 
 /// Trait for storing and retrieving OAuth2 credentials
@@ -119,11 +151,22 @@ impl CredentialStore for InMemoryCredentialStore {
 }
 
 /// Stored authorization state for OAuth2 PKCE flow
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct StoredAuthorizationState {
     pub pkce_verifier: String,
     pub csrf_token: String,
     pub created_at: u64,
+}
+
+impl std::fmt::Debug for StoredAuthorizationState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoredAuthorizationState")
+            .field("pkce_verifier", &"[REDACTED]")
+            .field("csrf_token", &"[REDACTED]")
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 
 /// A transparent wrapper around a JSON object that captures any extra fields returned by the
@@ -148,6 +191,7 @@ pub struct StoredAuthorizationState {
 /// }
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct VendorExtraTokenFields(pub HashMap<String, Value>);
 
 impl ExtraTokenFields for VendorExtraTokenFields {}
@@ -233,6 +277,7 @@ impl StateStore for InMemoryStateStore {
 
 /// HTTP client with OAuth 2.0 authorization
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct AuthClient<C> {
     pub http_client: C,
     pub auth_manager: Arc<Mutex<AuthorizationManager>>,
@@ -326,6 +371,7 @@ pub enum AuthError {
 
 /// oauth2 metadata
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[non_exhaustive]
 pub struct AuthorizationMetadata {
     pub authorization_endpoint: String,
     pub token_endpoint: String,
@@ -349,6 +395,7 @@ struct ResourceServerMetadata {
 
 /// Parameters extracted from WWW-Authenticate header
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct WWWAuthenticateParams {
     pub resource_metadata_url: Option<Url>,
     pub scope: Option<String>,
@@ -370,11 +417,33 @@ impl WWWAuthenticateParams {
 
 /// oauth2 client config
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct OAuthClientConfig {
     pub client_id: String,
     pub client_secret: Option<String>,
     pub scopes: Vec<String>,
     pub redirect_uri: String,
+}
+
+impl OAuthClientConfig {
+    pub fn new(client_id: impl Into<String>, redirect_uri: impl Into<String>) -> Self {
+        Self {
+            client_id: client_id.into(),
+            client_secret: None,
+            scopes: Vec::new(),
+            redirect_uri: redirect_uri.into(),
+        }
+    }
+
+    pub fn with_client_secret(mut self, secret: impl Into<String>) -> Self {
+        self.client_secret = Some(secret.into());
+        self
+    }
+
+    pub fn with_scopes(mut self, scopes: Vec<String>) -> Self {
+        self.scopes = scopes;
+        self
+    }
 }
 
 // add type aliases for oauth2 types
@@ -416,6 +485,7 @@ pub const EXTENSION_OAUTH_CLIENT_CREDENTIALS: &str =
 /// JWT signing algorithm for private_key_jwt authentication (SEP-1046)
 #[cfg(feature = "auth-client-credentials-jwt")]
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub enum JwtSigningAlgorithm {
     RS256,
     RS384,
@@ -453,6 +523,7 @@ impl JwtSigningAlgorithm {
 /// - `ClientSecret`: credentials sent in the request body
 /// - `PrivateKeyJwt`: RFC 7523 signed JWT assertion (requires `auth-client-credentials-jwt` feature)
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum ClientCredentialsConfig {
     /// Client secret authentication (credentials in request body)
     ClientSecret {
@@ -510,6 +581,7 @@ impl ClientCredentialsConfig {
 
 /// Configuration for scope upgrade behavior
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ScopeUpgradeConfig {
     /// Maximum number of scope upgrade attempts before giving up
     pub max_upgrade_attempts: u32,
@@ -555,6 +627,7 @@ pub(crate) struct ClientRegistrationRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ClientRegistrationResponse {
     pub client_id: String,
     pub client_secret: Option<String>,
@@ -563,6 +636,18 @@ pub struct ClientRegistrationResponse {
     // allow additional fields
     #[serde(flatten)]
     pub additional_fields: HashMap<String, serde_json::Value>,
+}
+
+impl ClientRegistrationResponse {
+    pub fn new(client_id: impl Into<String>, redirect_uris: Vec<String>) -> Self {
+        Self {
+            client_id: client_id.into(),
+            client_secret: None,
+            client_name: None,
+            redirect_uris,
+            additional_fields: HashMap::new(),
+        }
+    }
 }
 
 /// SEP-991: URL-based Client IDs
@@ -947,12 +1032,23 @@ impl AuthorizationManager {
         attempts < self.scope_upgrade_config.max_upgrade_attempts
     }
 
+    /// select scopes to request from authorization server
+    pub fn select_scopes(
+        &self,
+        www_authenticate_scope: Option<&str>,
+        default_scopes: &[&str],
+    ) -> Vec<String> {
+        let mut scopes = self.select_base_scopes(www_authenticate_scope, default_scopes);
+        self.add_offline_access_if_supported(&mut scopes);
+        scopes
+    }
+
     /// select scopes based on SEP-835 priority:
     /// 1. scope from WWW-Authenticate header (argument or stored from initial 401 probe)
     /// 2. scopes_supported from protected resource metadata (RFC 9728)
     /// 3. scopes_supported from authorization server metadata
     /// 4. provided default scopes
-    pub fn select_scopes(
+    fn select_base_scopes(
         &self,
         www_authenticate_scope: Option<&str>,
         default_scopes: &[&str],
@@ -985,6 +1081,21 @@ impl AuthorizationManager {
         }
 
         default_scopes.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// SEP-2207: when the AS advertises `offline_access` in `scopes_supported`, append
+    /// it so OIDC-flavored Authorization Servers will issue refresh tokens.
+    fn add_offline_access_if_supported(&self, scopes: &mut Vec<String>) {
+        if scopes.is_empty() || scopes.iter().any(|s| s == "offline_access") {
+            return;
+        }
+        if let Some(metadata) = &self.metadata {
+            if let Some(supported) = &metadata.scopes_supported {
+                if supported.iter().any(|s| s == "offline_access") {
+                    scopes.push("offline_access".to_string());
+                }
+            }
+        }
     }
 
     /// attempt to upgrade scopes after receiving a 403 insufficient_scope error.
@@ -1119,7 +1230,11 @@ impl AuthorizationManager {
     /// to avoid races between token retrieval and the actual HTTP request.
     const REFRESH_BUFFER_SECS: u64 = 30;
 
-    /// get access token, if expired, refresh it automatically
+    /// Get access token from local credential store.
+    /// If expired, refresh it automatically when a refresh token is available.
+    /// When the access token has expired and no refresh token is available (or
+    /// the refresh itself fails), returns [`AuthError::AuthorizationRequired`]
+    /// so the caller can re-authenticate.
     pub async fn get_access_token(&self) -> Result<String, AuthError> {
         let stored = self.credential_store.load().await?;
         let Some(stored_creds) = stored else {
@@ -1991,6 +2106,7 @@ impl AuthorizationManager {
 }
 
 /// oauth2 authorization session, for guiding user to complete the authorization process
+#[non_exhaustive]
 pub struct AuthorizationSession {
     pub auth_manager: AuthorizationManager,
     pub auth_url: String,
@@ -2143,6 +2259,7 @@ impl AuthorizedHttpClient {
 /// OAuth state machine
 /// Use the OAuthState to manage the OAuth client is more recommend
 /// But also you can use the AuthorizationManager,AuthorizationSession,AuthorizedHttpClient directly
+#[non_exhaustive]
 pub enum OAuthState {
     /// the AuthorizationManager
     Unauthorized(AuthorizationManager),
@@ -2251,7 +2368,9 @@ impl OAuthState {
             let selected_scopes: Vec<String> = if scopes.is_empty() {
                 manager.select_scopes(None, &[])
             } else {
-                scopes.iter().map(|s| s.to_string()).collect()
+                let mut s: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
+                manager.add_offline_access_if_supported(&mut s);
+                s
             };
             let scope_refs: Vec<&str> = selected_scopes.iter().map(|s| s.as_str()).collect();
             debug!("start session");
@@ -2777,6 +2896,44 @@ mod tests {
     }
 
     #[test]
+    fn test_stored_authorization_state_debug_redacts_secrets() {
+        let pkce = PkceCodeVerifier::new("super-secret-verifier".to_string());
+        let csrf = CsrfToken::new("super-secret-csrf".to_string());
+        let state = StoredAuthorizationState::new(&pkce, &csrf);
+        let debug_output = format!("{:?}", state);
+
+        assert!(!debug_output.contains("super-secret-verifier"));
+        assert!(!debug_output.contains("super-secret-csrf"));
+        assert!(debug_output.contains("[REDACTED]"));
+        assert!(debug_output.contains("created_at"));
+        assert!(debug_output.contains("created_at"));
+    }
+
+    #[test]
+    fn test_stored_credentials_debug_redacts_token_response() {
+        use oauth2::{AccessToken, basic::BasicTokenType};
+
+        use super::{OAuthTokenResponse, StoredCredentials};
+
+        let token_response = OAuthTokenResponse::new(
+            AccessToken::new("super-secret-access-token".to_string()),
+            BasicTokenType::Bearer,
+            VendorExtraTokenFields::default(),
+        );
+        let creds = StoredCredentials {
+            client_id: "my-client".to_string(),
+            token_response: Some(token_response),
+            granted_scopes: vec![],
+            token_received_at: None,
+        };
+        let debug_output = format!("{:?}", creds);
+
+        assert!(!debug_output.contains("super-secret-access-token"));
+        assert!(debug_output.contains("[REDACTED]"));
+        assert!(debug_output.contains("my-client"));
+    }
+
+    #[test]
     fn test_stored_authorization_state_into_pkce_verifier() {
         let pkce = PkceCodeVerifier::new("original-verifier".to_string());
         let csrf = CsrfToken::new("csrf-token".to_string());
@@ -3215,6 +3372,141 @@ mod tests {
         assert!(result.contains(&"read".to_string()));
         assert!(result.contains(&"write".to_string()));
         assert_eq!(result.len(), 2);
+    }
+
+    // -- SEP-2207: offline_access --
+
+    #[tokio::test]
+    async fn select_scopes_adds_offline_access_when_as_supports_it() {
+        let mgr = manager_with_metadata(Some(AuthorizationMetadata {
+            authorization_endpoint: "http://localhost/authorize".to_string(),
+            token_endpoint: "http://localhost/token".to_string(),
+            scopes_supported: Some(vec!["profile".to_string(), "offline_access".to_string()]),
+            ..Default::default()
+        }))
+        .await;
+        *mgr.resource_scopes.write().await = vec!["profile".to_string()];
+
+        let scopes = mgr.select_scopes(None, &[]);
+        assert!(
+            scopes.contains(&"offline_access".to_string()),
+            "offline_access should be added when AS supports it"
+        );
+        assert!(scopes.contains(&"profile".to_string()));
+    }
+
+    #[tokio::test]
+    async fn select_scopes_does_not_add_offline_access_when_as_does_not_support_it() {
+        let mgr = manager_with_metadata(Some(AuthorizationMetadata {
+            authorization_endpoint: "http://localhost/authorize".to_string(),
+            token_endpoint: "http://localhost/token".to_string(),
+            scopes_supported: Some(vec!["profile".to_string(), "email".to_string()]),
+            ..Default::default()
+        }))
+        .await;
+        *mgr.resource_scopes.write().await = vec!["profile".to_string()];
+
+        let scopes = mgr.select_scopes(None, &[]);
+        assert!(
+            !scopes.contains(&"offline_access".to_string()),
+            "offline_access should not be added when AS does not support it"
+        );
+    }
+
+    #[tokio::test]
+    async fn select_scopes_falls_back_to_defaults() {
+        let mgr = manager_with_metadata(Some(AuthorizationMetadata {
+            authorization_endpoint: "http://localhost/authorize".to_string(),
+            token_endpoint: "http://localhost/token".to_string(),
+            scopes_supported: None,
+            ..Default::default()
+        }))
+        .await;
+
+        let scopes = mgr.select_scopes(None, &["default_scope"]);
+        assert_eq!(scopes, vec!["default_scope".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn select_scopes_does_not_duplicate_offline_access() {
+        let mgr = manager_with_metadata(Some(AuthorizationMetadata {
+            authorization_endpoint: "http://localhost/authorize".to_string(),
+            token_endpoint: "http://localhost/token".to_string(),
+            scopes_supported: Some(vec!["profile".to_string(), "offline_access".to_string()]),
+            ..Default::default()
+        }))
+        .await;
+
+        // When AS metadata is the scope source and already contains offline_access,
+        // it should appear exactly once.
+        let scopes = mgr.select_scopes(None, &[]);
+        let count = scopes.iter().filter(|s| *s == "offline_access").count();
+        assert_eq!(count, 1, "offline_access should not be duplicated");
+    }
+
+    #[tokio::test]
+    async fn select_scopes_adds_offline_access_to_www_authenticate_scopes() {
+        let mgr = manager_with_metadata(Some(AuthorizationMetadata {
+            authorization_endpoint: "http://localhost/authorize".to_string(),
+            token_endpoint: "http://localhost/token".to_string(),
+            scopes_supported: Some(vec!["profile".to_string(), "offline_access".to_string()]),
+            ..Default::default()
+        }))
+        .await;
+        *mgr.www_auth_scopes.write().await = vec!["profile".to_string()];
+
+        let scopes = mgr.select_scopes(None, &[]);
+        assert!(scopes.contains(&"offline_access".to_string()));
+        assert!(scopes.contains(&"profile".to_string()));
+    }
+
+    #[tokio::test]
+    async fn select_scopes_adds_offline_access_to_www_authenticate_argument() {
+        let mgr = manager_with_metadata(Some(AuthorizationMetadata {
+            authorization_endpoint: "http://localhost/authorize".to_string(),
+            token_endpoint: "http://localhost/token".to_string(),
+            scopes_supported: Some(vec!["profile".to_string(), "offline_access".to_string()]),
+            ..Default::default()
+        }))
+        .await;
+
+        let scopes = mgr.select_scopes(Some("profile email"), &[]);
+        assert!(scopes.contains(&"offline_access".to_string()));
+        assert!(scopes.contains(&"profile".to_string()));
+        assert!(scopes.contains(&"email".to_string()));
+    }
+
+    #[tokio::test]
+    async fn add_offline_access_if_supported_works_with_explicit_scopes() {
+        let mgr = manager_with_metadata(Some(AuthorizationMetadata {
+            authorization_endpoint: "http://localhost/authorize".to_string(),
+            token_endpoint: "http://localhost/token".to_string(),
+            scopes_supported: Some(vec!["profile".to_string(), "offline_access".to_string()]),
+            ..Default::default()
+        }))
+        .await;
+
+        let mut explicit = vec!["read".to_string(), "write".to_string()];
+        mgr.add_offline_access_if_supported(&mut explicit);
+        assert!(explicit.contains(&"offline_access".to_string()));
+    }
+
+    #[tokio::test]
+    async fn add_offline_access_if_supported_skips_empty_scopes() {
+        let mgr = manager_with_metadata(Some(AuthorizationMetadata {
+            authorization_endpoint: "http://localhost/authorize".to_string(),
+            token_endpoint: "http://localhost/token".to_string(),
+            scopes_supported: Some(vec!["profile".to_string(), "offline_access".to_string()]),
+            ..Default::default()
+        }))
+        .await;
+
+        let mut empty: Vec<String> = vec![];
+        mgr.add_offline_access_if_supported(&mut empty);
+        assert!(
+            empty.is_empty(),
+            "offline_access should not be the only scope"
+        );
     }
 
     #[test]

@@ -7,7 +7,7 @@
 //! | transport         | client                                                    | server                                                |
 //! |:-:                |:-:                                                        |:-:                                                    |
 //! | std IO            | [`child_process::TokioChildProcess`]                      | [`io::stdio`]                                         |
-//! | streamable http   | [`streamable_http_client::StreamableHttpClientTransport`] | [`streamable_http_server::StreamableHttpService`]     |
+//! | streamable http   | [`streamable_http_client::StreamableHttpClientTransport`] | `streamable_http_server::StreamableHttpService`     |
 //!
 //！## Helper Transport Types
 //! Thers are several helper transport types that can help you to create transport quickly.
@@ -83,6 +83,8 @@ pub use worker::WorkerTransport;
 
 #[cfg(feature = "transport-child-process")]
 pub mod child_process;
+#[cfg(feature = "which-command")]
+pub use child_process::which_command;
 #[cfg(feature = "transport-child-process")]
 pub use child_process::{ConfigureCommandExt, TokioChildProcess};
 
@@ -107,11 +109,13 @@ pub use auth::{
 // pub mod ws;
 #[cfg(feature = "transport-streamable-http-server-session")]
 pub mod streamable_http_server;
-#[cfg(feature = "transport-streamable-http-server")]
+#[cfg(all(feature = "transport-streamable-http-server", not(feature = "local")))]
 pub use streamable_http_server::tower::{StreamableHttpServerConfig, StreamableHttpService};
 
 #[cfg(feature = "transport-streamable-http-client")]
 pub mod streamable_http_client;
+#[cfg(all(unix, feature = "transport-streamable-http-client-unix-socket"))]
+pub use common::unix_socket::UnixSocketHttpClient;
 #[cfg(feature = "transport-streamable-http-client")]
 pub use streamable_http_client::StreamableHttpClientTransport;
 
@@ -151,6 +155,7 @@ where
     fn into_transport(self) -> impl Transport<R, Error = E> + 'static;
 }
 
+#[non_exhaustive]
 pub enum TransportAdapterIdentity {}
 impl<R, T, E> IntoTransport<R, E, TransportAdapterIdentity> for T
 where
@@ -231,6 +236,7 @@ where
 
 #[derive(Debug, thiserror::Error)]
 #[error("Transport [{transport_name}] error: {error}")]
+#[non_exhaustive]
 pub struct DynamicTransportError {
     pub transport_name: Cow<'static, str>,
     pub transport_type_id: std::any::TypeId,
@@ -246,6 +252,24 @@ impl DynamicTransportError {
             error: Box::new(e),
         }
     }
+
+    /// Create a `DynamicTransportError` from raw parts.
+    ///
+    /// Unlike [`new`](Self::new), this does not require a concrete [`Transport`] type,
+    /// making it usable in test fixtures and other contexts where a real transport
+    /// implementation is not available.
+    pub fn from_parts(
+        transport_name: impl Into<Cow<'static, str>>,
+        transport_type_id: std::any::TypeId,
+        error: Box<dyn std::error::Error + Send + Sync>,
+    ) -> Self {
+        Self {
+            transport_name: transport_name.into(),
+            transport_type_id,
+            error,
+        }
+    }
+
     pub fn downcast<T: Transport<R> + 'static, R: ServiceRole>(self) -> Result<T::Error, Self> {
         if !self.is::<T, R>() {
             Err(self)

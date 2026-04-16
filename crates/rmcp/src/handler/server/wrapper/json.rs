@@ -3,10 +3,7 @@ use std::borrow::Cow;
 use schemars::JsonSchema;
 use serde::Serialize;
 
-use crate::{
-    handler::server::tool::IntoCallToolResult,
-    model::{CallToolResult, IntoContents},
-};
+use crate::{handler::server::tool::IntoCallToolResult, model::CallToolResult};
 
 /// Json wrapper for structured output
 ///
@@ -14,6 +11,7 @@ use crate::{
 /// serialized as structured JSON content with an associated schema.
 /// The framework will place the JSON in the `structured_content` field
 /// of the tool result rather than the regular `content` field.
+#[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct Json<T>(pub T);
 
 // Implement JsonSchema for Json<T> to delegate to T's schema
@@ -38,17 +36,5 @@ impl<T: Serialize + JsonSchema + 'static> IntoCallToolResult for Json<T> {
         })?;
 
         Ok(CallToolResult::structured(value))
-    }
-}
-
-// Implementation for Result<Json<T>, E>
-impl<T: Serialize + JsonSchema + 'static, E: IntoContents> IntoCallToolResult
-    for Result<Json<T>, E>
-{
-    fn into_call_tool_result(self) -> Result<CallToolResult, crate::ErrorData> {
-        match self {
-            Ok(value) => value.into_call_tool_result(),
-            Err(error) => Ok(CallToolResult::error(error.into_contents())),
-        }
     }
 }
