@@ -31,6 +31,7 @@ For the full MCP specification, see [modelcontextprotocol.io](https://modelconte
 - [Completions](#completions)
 - [Notifications](#notifications)
 - [Subscriptions](#subscriptions)
+- [Tasks](#tasks-long-running-tool-invocations)
 - [Examples](#examples)
 - [OAuth Support](#oauth-support)
 - [Related Resources](#related-resources)
@@ -167,6 +168,8 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 ```
+
+The generated tool `inputSchema` and `outputSchema` are derived from the fields of `T`. The type name and documentation on `T` are ignored; only field names, field types, and field documentation are used.
 
 When you need custom server metadata or multiple capabilities (tools + prompts), use explicit `#[tool_handler]`:
 
@@ -468,6 +471,8 @@ context.peer.notify_prompt_list_changed().await?;
 
 ## Sampling
 
+> **Deprecated (SEP-2577):** Sampling is deprecated and will be removed in a future release. It remains fully functional for now. See [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577).
+
 Sampling flips the usual direction: the server asks the client to run an LLM completion. The server sends a `create_message` request, the client processes it through its LLM, and returns the result.
 
 **MCP Spec:** [Sampling](https://modelcontextprotocol.io/specification/2025-11-25/client/sampling)
@@ -541,6 +546,8 @@ impl ClientHandler for MyClient {
 
 ## Roots
 
+> **Deprecated (SEP-2577):** Roots is deprecated and will be removed in a future release. It remains fully functional for now. See [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577).
+
 Roots tell servers which directories or projects the client is working in. A root is a URI (typically `file://`) pointing to a workspace or repository. Servers can query roots to know where to look for files and how to scope their work.
 
 **MCP Spec:** [Roots](https://modelcontextprotocol.io/specification/2025-11-25/client/roots)
@@ -608,6 +615,8 @@ client.notify_roots_list_changed().await?;
 ---
 
 ## Logging
+
+> **Deprecated (SEP-2577):** Logging is deprecated and will be removed in a future release. It remains fully functional for now. See [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577).
 
 Servers can send structured log messages to clients. The client sets a minimum severity level, and the server sends messages through the peer notification interface.
 
@@ -954,6 +963,28 @@ impl ClientHandler for MyClient {
 
 ---
 
+## Tasks (long-running tool invocations)
+
+`rmcp` supports the [task-based tool invocation](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)
+flow defined in SEP-1319. Annotate a tool with `execution(task_support = "required" | "optional")`
+and add `#[task_handler]` to your `ServerHandler` impl — `enqueue_task`, `tasks/list`, `tasks/get`,
+`tasks/result`, and `tasks/cancel` are generated for you on top of an `OperationProcessor`.
+
+```rust, ignore
+#[tool(
+    description = "Sum two numbers after a 2-second delay",
+    execution(task_support = "required")
+)]
+async fn slow_sum(/* ... */) -> Result<CallToolResult, McpError> { /* ... */ }
+
+#[tool_handler]
+#[task_handler]
+impl ServerHandler for TaskDemo {}
+```
+
+See [`servers_task_stdio`](examples/servers/src/task_stdio.rs) and the matching
+[`clients_task_stdio`](examples/clients/src/task_stdio.rs) for a runnable end-to-end example.
+
 ## Examples
 
 See [examples](examples/README.md).
@@ -989,8 +1020,10 @@ See [Oauth_support](docs/OAUTH_SUPPORT.md) for details.
 - [spreadsheet-mcp](https://github.com/PSU3D0/spreadsheet-mcp) - Token-efficient MCP server for spreadsheet analysis with automatic region detection, recalculation, screenshot, and editing support for LLM agents
 - [hyper-mcp](https://github.com/hyper-mcp-rs/hyper-mcp) - A fast, secure MCP server that extends its capabilities through WebAssembly (WASM) plugins
 - [rudof-mcp](https://github.com/rudof-project/rudof/tree/master/rudof_mcp) - RDF validation and data processing MCP server with ShEx/SHACL validation, SPARQL queries, and format conversion. Supports stdio and streamable HTTP transports with full MCP capabilities (tools, prompts, resources, logging, completions, tasks)
+- [MCPMate](https://github.com/loocor/MCPMate) - Desktop app for progressive MCP management: start with guided server import, then grow into multi-client profiles and Unify meta tools to keep tool exposure, token use, and runtime state under control, with more options for efficiency, cost, and reliability
 - [McpMux](https://github.com/mcpmux/mcp-mux) - Desktop app to configure MCP servers once at McpMux, connect every AI client (Cursor, Claude Desktop, VS Code, Windsurf) through a single encrypted local gateway with Spaces for project organization, FeatureSets to switch toolsets per client, and a built-in server registry
-
+- [systemprompt-template](https://github.com/systempromptio/systemprompt-template) - Single-binary Rust runtime providing MCP governance — authentication, authorisation, rate-limiting, audit trails, and cost tracking for AI agents. Self-hosted, air-gap capable, 3,300+ req/s with sub-5ms governance overhead
+- [jilebi-mcp](https://github.com/datron/jilebi) - an extensible MCP server through plugins in Javascript with a secure permissions model
 
 ## Development
 

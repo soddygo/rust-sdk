@@ -1,4 +1,6 @@
-use std::{collections::HashMap, convert::Infallible, fmt::Display, sync::Arc, time::Duration};
+use std::{
+    borrow::Cow, collections::HashMap, convert::Infallible, fmt::Display, sync::Arc, time::Duration,
+};
 
 use bytes::Bytes;
 use futures::{StreamExt, future::BoxFuture};
@@ -14,8 +16,8 @@ use super::session::{
 use crate::{
     RoleServer,
     model::{
-        ClientJsonRpcMessage, ClientNotification, ClientRequest, GetExtensions, InitializeRequest,
-        InitializedNotification, ProtocolVersion,
+        ClientJsonRpcMessage, ClientNotification, ClientRequest, ErrorData, GetExtensions,
+        InitializeRequest, InitializedNotification, JsonRpcError, ProtocolVersion, RequestId,
     },
     serve_server,
     service::serve_directly,
@@ -64,6 +66,15 @@ pub struct StreamableHttpServerConfig {
     /// or with ports:
     ///     allowed_hosts = ["example.com", "example.com:8080"]
     pub allowed_hosts: Vec<String>,
+    /// Allowed browser origins for inbound `Origin` validation.
+    ///
+    /// Defaults to an empty list, which disables Origin validation. When
+    /// non-empty, requests carrying an `Origin` header must match per RFC 6454
+    /// `(scheme, host, port)`; missing-`Origin` requests still pass. Entries
+    /// must include a scheme; `"null"` matches the browser's `Origin: null`.
+    /// examples:
+    ///     allowed_origins = ["https://app.example.com", "http://localhost:8080"]
+    pub allowed_origins: Vec<String>,
     /// Optional external session store for cross-instance recovery.
     ///
     /// When set, [`SessionState`] (the client's `initialize` parameters) is
@@ -103,6 +114,7 @@ impl Default for StreamableHttpServerConfig {
             json_response: false,
             cancellation_token: CancellationToken::new(),
             allowed_hosts: vec!["localhost".into(), "127.0.0.1".into(), "::1".into()],
+            allowed_origins: vec![],
             session_store: None,
         }
     }
@@ -119,6 +131,18 @@ impl StreamableHttpServerConfig {
     /// Disable allowed hosts. This will allow requests with any `Host` header, which is NOT recommended for public deployments.
     pub fn disable_allowed_hosts(mut self) -> Self {
         self.allowed_hosts.clear();
+        self
+    }
+    pub fn with_allowed_origins(
+        mut self,
+        allowed_origins: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        self.allowed_origins = allowed_origins.into_iter().map(Into::into).collect();
+        self
+    }
+    /// Disable Origin validation, reverting to the default ignore-Origin behavior.
+    pub fn disable_allowed_origins(mut self) -> Self {
+        self.allowed_origins.clear();
         self
     }
     pub fn with_sse_keep_alive(mut self, duration: Option<Duration>) -> Self {
@@ -187,6 +211,54 @@ fn validate_protocol_version_header(headers: &http::HeaderMap) -> Result<(), Box
     Ok(())
 }
 
+fn invalid_request_jsonrpc_response(
+    id: Option<RequestId>,
+    message: impl Into<Cow<'static, str>>,
+) -> BoxResponse {
+    let err = JsonRpcError::new(id, ErrorData::invalid_request(message, None));
+    let body = serde_json::to_vec(&err).expect("serialize JsonRpcError");
+    Response::builder()
+        .status(http::StatusCode::BAD_REQUEST)
+        .header(http::header::CONTENT_TYPE, JSON_MIME_TYPE)
+        .body(Full::new(Bytes::from(body)).boxed())
+        .expect("valid response")
+}
+
+#[expect(
+    clippy::result_large_err,
+    reason = "BoxResponse is intentionally large; matches other handlers in this file"
+)]
+/// Absent header is allowed; the first initialize round-trip may legitimately omit it.
+fn validate_header_matches_init_body(
+    headers: &http::HeaderMap,
+    body_version: &str,
+    request_id: Option<RequestId>,
+) -> Result<(), BoxResponse> {
+    let Some(header_value) = headers.get(HEADER_MCP_PROTOCOL_VERSION) else {
+        return Ok(());
+    };
+    let header_str = header_value.to_str().map_err(|_| {
+        invalid_request_jsonrpc_response(
+            request_id.clone(),
+            "Invalid Request: MCP-Protocol-Version header is not valid UTF-8",
+        )
+    })?;
+    if header_str != body_version {
+        tracing::warn!(
+            header = header_str,
+            body = body_version,
+            "rejecting initialize: MCP-Protocol-Version header does not match params.protocolVersion"
+        );
+        return Err(invalid_request_jsonrpc_response(
+            request_id,
+            format!(
+                "Invalid Request: MCP-Protocol-Version header ({header_str}) does not match initialize params.protocolVersion ({body_version})"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn forbidden_response(message: impl Into<String>) -> BoxResponse {
     Response::builder()
         .status(http::StatusCode::FORBIDDEN)
@@ -243,6 +315,59 @@ fn host_is_allowed(host: &NormalizedAuthority, allowed_hosts: &[String]) -> bool
         })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NormalizedOrigin {
+    Null,
+    Tuple {
+        scheme: String,
+        host: String,
+        port: Option<u16>,
+    },
+}
+
+fn parse_origin_value(value: &str) -> Option<NormalizedOrigin> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if value.eq_ignore_ascii_case("null") {
+        return Some(NormalizedOrigin::Null);
+    }
+    let uri = http::Uri::try_from(value).ok()?;
+    let scheme = uri.scheme_str()?.to_ascii_lowercase();
+    let authority = uri.authority()?;
+    Some(NormalizedOrigin::Tuple {
+        scheme,
+        host: normalize_host(authority.host()),
+        port: authority.port_u16(),
+    })
+}
+
+fn origin_is_allowed(origin: &NormalizedOrigin, allowed_origins: &[String]) -> bool {
+    if allowed_origins.is_empty() {
+        return true;
+    }
+    allowed_origins
+        .iter()
+        .filter_map(|raw| parse_origin_value(raw))
+        .any(|allowed| match (&allowed, origin) {
+            (NormalizedOrigin::Null, NormalizedOrigin::Null) => true,
+            (
+                NormalizedOrigin::Tuple {
+                    scheme: a_scheme,
+                    host: a_host,
+                    port: a_port,
+                },
+                NormalizedOrigin::Tuple {
+                    scheme: o_scheme,
+                    host: o_host,
+                    port: o_port,
+                },
+            ) => a_scheme == o_scheme && a_host == o_host && (a_port.is_none() || a_port == o_port),
+            _ => false,
+        })
+}
+
 fn bad_request_response(message: &str) -> BoxResponse {
     let body = Full::from(message.to_string()).boxed();
 
@@ -253,28 +378,85 @@ fn bad_request_response(message: &str) -> BoxResponse {
         .expect("failed to build bad request response")
 }
 
-fn parse_host_header(headers: &HeaderMap) -> Result<NormalizedAuthority, BoxResponse> {
-    let Some(host) = headers.get(http::header::HOST) else {
-        return Err(bad_request_response("Bad Request: missing Host header"));
-    };
-
-    let host = host
-        .to_str()
-        .map_err(|_| bad_request_response("Bad Request: Invalid Host header encoding"))?;
-    let authority = http::uri::Authority::try_from(host)
-        .map_err(|_| bad_request_response("Bad Request: Invalid Host header"))?;
+fn parse_host_header(
+    uri: &http::Uri,
+    headers: &HeaderMap,
+) -> Result<NormalizedAuthority, BoxResponse> {
+    if let Some(host) = headers.get(http::header::HOST) {
+        let host_str = host
+            .to_str()
+            .inspect_err(|_| {
+                tracing::warn!(host = ?host, "rejected request with non-UTF-8 Host header");
+            })
+            .map_err(|_| bad_request_response("Bad Request: Invalid Host header encoding"))?;
+        let authority = http::uri::Authority::try_from(host_str)
+            .inspect_err(|_| {
+                tracing::warn!(
+                    host = host_str,
+                    "rejected request with malformed Host header"
+                );
+            })
+            .map_err(|_| bad_request_response("Bad Request: Invalid Host header"))?;
+        return Ok(normalize_authority(authority.host(), authority.port_u16()));
+    }
+    // HTTP/2 carries the host in `:authority`; middleware such as
+    // `axum::Router::nest` can drop the `Host` header hyper synthesizes from it.
+    let authority = uri.authority().ok_or_else(|| {
+        tracing::warn!("rejected request with missing Host header and no :authority");
+        bad_request_response("Bad Request: missing Host header")
+    })?;
     Ok(normalize_authority(authority.host(), authority.port_u16()))
 }
 
 fn validate_dns_rebinding_headers(
+    uri: &http::Uri,
     headers: &HeaderMap,
     config: &StreamableHttpServerConfig,
 ) -> Result<(), BoxResponse> {
-    let host = parse_host_header(headers)?;
+    let host = parse_host_header(uri, headers)?;
     if !host_is_allowed(&host, &config.allowed_hosts) {
+        tracing::warn!(
+            host = ?host,
+            "rejected request with disallowed Host header (possible DNS rebinding attempt)",
+        );
         return Err(forbidden_response("Forbidden: Host header is not allowed"));
     }
+    validate_origin_header(headers, &config.allowed_origins)?;
+    Ok(())
+}
 
+fn validate_origin_header(
+    headers: &HeaderMap,
+    allowed_origins: &[String],
+) -> Result<(), BoxResponse> {
+    if allowed_origins.is_empty() {
+        return Ok(());
+    }
+    let Some(origin_header) = headers.get(http::header::ORIGIN) else {
+        return Ok(());
+    };
+    let origin_str = origin_header
+        .to_str()
+        .inspect_err(|_| {
+            tracing::warn!(origin = ?origin_header, "rejected request with non-UTF-8 Origin header");
+        })
+        .map_err(|_| bad_request_response("Bad Request: Invalid Origin header encoding"))?;
+    let origin = parse_origin_value(origin_str).ok_or_else(|| {
+        tracing::warn!(
+            origin = origin_str,
+            "rejected request with malformed Origin header",
+        );
+        bad_request_response("Bad Request: Invalid Origin header")
+    })?;
+    if !origin_is_allowed(&origin, allowed_origins) {
+        tracing::warn!(
+            origin = ?origin,
+            "rejected request with disallowed Origin header (possible cross-origin attack)",
+        );
+        return Err(forbidden_response(
+            "Forbidden: Origin header is not allowed",
+        ));
+    }
     Ok(())
 }
 
@@ -682,7 +864,9 @@ where
         B: Body + Send + 'static,
         B::Error: Display,
     {
-        if let Err(response) = validate_dns_rebinding_headers(request.headers(), &self.config) {
+        if let Err(response) =
+            validate_dns_rebinding_headers(request.uri(), request.headers(), &self.config)
+        {
             return response;
         }
         let method = request.method().clone();
@@ -961,9 +1145,15 @@ where
                     None
                 };
                 if let ClientJsonRpcMessage::Request(req) = &mut message {
-                    if !matches!(req.request, ClientRequest::InitializeRequest(_)) {
+                    let ClientRequest::InitializeRequest(init_req) = &req.request else {
                         return Err(unexpected_message_response("initialize request"));
-                    }
+                    };
+                    // Reject mismatched MCP-Protocol-Version header before binding the session to anything.
+                    validate_header_matches_init_body(
+                        &part.headers,
+                        init_req.params.protocol_version.as_str(),
+                        Some(req.id.clone()),
+                    )?;
                     // inject request part to extensions
                     req.request.extensions_mut().insert(part);
                 } else {
@@ -1029,13 +1219,24 @@ where
                 Ok(response)
             }
         } else {
-            // Stateless mode: validate MCP-Protocol-Version on non-init requests
-            let is_init = matches!(
-                &message,
-                ClientJsonRpcMessage::Request(req) if matches!(req.request, ClientRequest::InitializeRequest(_))
-            );
-            if !is_init {
-                validate_protocol_version_header(&part.headers)?;
+            // Stateless mode:
+            // - on initialize: the header (if present) must match `params.protocolVersion`
+            // - on every other request: the header must name a known version.
+            match &message {
+                ClientJsonRpcMessage::Request(req) => {
+                    if let ClientRequest::InitializeRequest(init_req) = &req.request {
+                        validate_header_matches_init_body(
+                            &part.headers,
+                            init_req.params.protocol_version.as_str(),
+                            Some(req.id.clone()),
+                        )?;
+                    } else {
+                        validate_protocol_version_header(&part.headers)?;
+                    }
+                }
+                _ => {
+                    validate_protocol_version_header(&part.headers)?;
+                }
             }
             let service = self
                 .get_service()

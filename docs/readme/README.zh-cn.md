@@ -31,6 +31,7 @@
 - [补全](#补全)
 - [通知](#通知)
 - [订阅](#订阅)
+- [任务](#任务长时间运行的工具调用)
 - [示例](#示例)
 - [OAuth 支持](#oauth-支持)
 - [相关资源](#相关资源)
@@ -954,6 +955,26 @@ impl ClientHandler for MyClient {
 
 ---
 
+## 任务（长时间运行的工具调用）
+
+`rmcp` 支持 SEP-1319 中定义的[基于任务的工具调用](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks)流程。为工具添加 `execution(task_support = "required" | "optional")` 注解，并在 `ServerHandler` 实现上添加 `#[task_handler]` —— `enqueue_task`、`tasks/list`、`tasks/get`、`tasks/result` 和 `tasks/cancel` 将在 `OperationProcessor` 之上自动生成。
+
+```rust, ignore
+#[tool(
+    description = "Sum two numbers after a 2-second delay",
+    execution(task_support = "required")
+)]
+async fn slow_sum(/* ... */) -> Result<CallToolResult, McpError> { /* ... */ }
+
+#[tool_handler]
+#[task_handler]
+impl ServerHandler for TaskDemo {}
+```
+
+完整的端到端示例请参阅 [`servers_task_stdio`](../../examples/servers/src/task_stdio.rs) 及对应的 [`clients_task_stdio`](../../examples/clients/src/task_stdio.rs)。
+
+---
+
 ## 示例
 
 查看 [examples](../../examples/README.md)。
@@ -989,6 +1010,7 @@ impl ClientHandler for MyClient {
 - [spreadsheet-mcp](https://github.com/PSU3D0/spreadsheet-mcp) - 面向 LLM 智能体的高效 Token 使用的电子表格分析 MCP 服务，支持自动区域检测、重新计算、截图和编辑
 - [hyper-mcp](https://github.com/hyper-mcp-rs/hyper-mcp) - 通过 WebAssembly (WASM) 插件扩展功能的快速、安全的 MCP 服务
 - [rudof-mcp](https://github.com/rudof-project/rudof/tree/master/rudof_mcp) - RDF 验证和数据处理 MCP 服务，支持 ShEx/SHACL 验证、SPARQL 查询和格式转换。支持 stdio 和 Streamable HTTP 传输，具备完整的 MCP 功能（工具、提示词、资源、日志、补全、任务）
+- [MCPMate](https://github.com/loocor/MCPMate) - 渐进式 MCP 管理桌面应用：从引导式服务导入开始，逐步扩展到多客户端配置集和 Unify 元工具，让能力暴露、Token 消耗与运行状态更可控，并在效率、成本和可靠性上提供更多选择
 
 
 ## 开发

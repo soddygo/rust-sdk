@@ -152,6 +152,7 @@ impl std::fmt::Display for ProtocolVersion {
 }
 
 impl ProtocolVersion {
+    pub const V_2026_07_28: Self = Self(Cow::Borrowed("2026-07-28"));
     pub const V_2025_11_25: Self = Self(Cow::Borrowed("2025-11-25"));
     pub const V_2025_06_18: Self = Self(Cow::Borrowed("2025-06-18"));
     pub const V_2025_03_26: Self = Self(Cow::Borrowed("2025-03-26"));
@@ -164,6 +165,7 @@ impl ProtocolVersion {
         Self::V_2025_03_26,
         Self::V_2025_06_18,
         Self::V_2025_11_25,
+        Self::V_2026_07_28,
     ];
 
     /// Returns the string representation of this protocol version.
@@ -193,6 +195,7 @@ impl<'de> Deserialize<'de> for ProtocolVersion {
             "2025-03-26" => return Ok(ProtocolVersion::V_2025_03_26),
             "2025-06-18" => return Ok(ProtocolVersion::V_2025_06_18),
             "2025-11-25" => return Ok(ProtocolVersion::V_2025_11_25),
+            "2026-07-28" => return Ok(ProtocolVersion::V_2026_07_28),
             _ => {}
         }
         Ok(ProtocolVersion(Cow::Owned(s)))
@@ -461,13 +464,17 @@ pub struct JsonRpcResponse<R = JsonObject> {
 #[expect(clippy::exhaustive_structs, reason = "intentionally exhaustive")]
 pub struct JsonRpcError {
     pub jsonrpc: JsonRpcVersion2_0,
-    pub id: RequestId,
+    // MCP 2025-11-25 §Error Responses: `id` is optional and omitted when the
+    // server cannot read the request id (e.g. parse error / invalid request).
+    // https://modelcontextprotocol.io/specification/2025-11-25/basic#error-responses
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<RequestId>,
     pub error: ErrorData,
 }
 
 impl JsonRpcError {
     /// Create a new JsonRpcError.
-    pub fn new(id: RequestId, error: ErrorData) -> Self {
+    pub fn new(id: Option<RequestId>, error: ErrorData) -> Self {
         Self {
             jsonrpc: JsonRpcVersion2_0,
             id,
@@ -537,9 +544,12 @@ impl ErrorData {
             data,
         }
     }
+    /// Resource-not-found error (`-32002`). The server upgrades this to `INVALID_PARAMS`
+    /// (`-32602`) for peers negotiating protocol `2026-07-28` or newer (SEP-2164).
     pub fn resource_not_found(message: impl Into<Cow<'static, str>>, data: Option<Value>) -> Self {
         Self::new(ErrorCode::RESOURCE_NOT_FOUND, message, data)
     }
+
     pub fn parse_error(message: impl Into<Cow<'static, str>>, data: Option<Value>) -> Self {
         Self::new(ErrorCode::PARSE_ERROR, message, data)
     }
@@ -601,7 +611,7 @@ impl<Req, Resp, Not> JsonRpcMessage<Req, Resp, Not> {
         })
     }
     #[inline]
-    pub const fn error(error: ErrorData, id: RequestId) -> Self {
+    pub const fn error(error: ErrorData, id: Option<RequestId>) -> Self {
         JsonRpcMessage::Error(JsonRpcError {
             jsonrpc: JsonRpcVersion2_0,
             id,
@@ -633,15 +643,15 @@ impl<Req, Resp, Not> JsonRpcMessage<Req, Resp, Not> {
             _ => None,
         }
     }
-    pub fn into_error(self) -> Option<(ErrorData, RequestId)> {
+    pub fn into_error(self) -> Option<(ErrorData, Option<RequestId>)> {
         match self {
             JsonRpcMessage::Error(e) => Some((e.error, e.id)),
             _ => None,
         }
     }
-    pub fn into_result(self) -> Option<(Result<Resp, ErrorData>, RequestId)> {
+    pub fn into_result(self) -> Option<(Result<Resp, ErrorData>, Option<RequestId>)> {
         match self {
-            JsonRpcMessage::Response(r) => Some((Ok(r.result), r.id)),
+            JsonRpcMessage::Response(r) => Some((Ok(r.result), Some(r.id))),
             JsonRpcMessage::Error(e) => Some((Err(e.error), e.id)),
 
             _ => None,
@@ -2834,7 +2844,55 @@ impl CallToolResult {
             meta: None,
         }
     }
-    /// Create an error tool result with unstructured content
+
+    /// Create a tool-level error result with caller-visible content.
+    ///
+    /// # When to use this vs `Err(ErrorData)`
+    ///
+    /// MCP distinguishes two failure modes for a `call_tool` invocation, and
+    /// the right one to use depends on **whose problem it is**:
+    ///
+    /// - **Tool-level error** — `Ok(CallToolResult::error(...))`.
+    ///   The request was valid and routed to your tool, but executing the
+    ///   tool failed in a way the caller should see (a query returned no
+    ///   rows, an external API returned 500, the user's input is plausible
+    ///   but produced no result, etc.). The caller's MCP client renders the
+    ///   `content` you provide; your message reaches the user. **This is the
+    ///   right choice for almost every "the tool ran and didn't work" case.**
+    ///
+    /// - **Protocol error** — `Err(ErrorData)` with a JSON-RPC code.
+    ///   The server cannot route the request at all, or an infrastructure
+    ///   error makes the server itself unusable
+    ///   ([`ErrorCode::INTERNAL_ERROR`], `-32603`). MCP clients typically
+    ///   render protocol errors opaquely (e.g. "Tool result missing due to
+    ///   internal error") — the caller does **not** see your message.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use rmcp::model::{CallToolResult, Content, ErrorData};
+    ///
+    /// async fn lookup(query: &str) -> Result<CallToolResult, ErrorData> {
+    ///     // Caller passed a malformed query — the server can't run anything.
+    ///     // This is a protocol error, the caller's client will render it
+    ///     // as -32602 invalid_params:
+    ///     if query.is_empty() {
+    ///         return Err(ErrorData::invalid_params("query must be non-empty", None));
+    ///     }
+    ///
+    ///     // Tool ran, no result. Caller should see the explanation:
+    ///     let rows = run_query(query).await;
+    ///     if rows.is_empty() {
+    ///         return Ok(CallToolResult::error(vec![Content::text(
+    ///             format!("no rows matched '{query}'"),
+    ///         )]));
+    ///     }
+    ///
+    ///     Ok(CallToolResult::success(vec![Content::text(format_rows(&rows))]))
+    /// }
+    /// # async fn run_query(_: &str) -> Vec<&'static str> { vec![] }
+    /// # fn format_rows(_: &[&str]) -> String { String::new() }
+    /// ```
     pub fn error(content: Vec<Content>) -> Self {
         CallToolResult {
             content,

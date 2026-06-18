@@ -85,8 +85,22 @@ jobs:
           cargo semver-checks \
             --package rmcp \
             --baseline-rev ${{ github.event.pull_request.base.sha }} \
+            --release-type minor \
             --only-explicit-features \
             --features default
+
+      - name: Check rmcp (all features except local)
+        run: |
+          FEATURES=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '[.packages[] | select(.name == "rmcp") | .features | keys[]
+                      | select(startswith("__") | not)
+                      | select(. != "local")] | join(",")')
+          cargo semver-checks \
+            --package rmcp \
+            --baseline-rev ${{ github.event.pull_request.base.sha }} \
+            --release-type minor \
+            --only-explicit-features \
+            --features "$FEATURES"
 
   spelling:
     name: spell check with typos
@@ -247,7 +261,7 @@ jobs:
             if [ -f "$dir/Cargo.toml" ]; then
               if [[ "$dir" != *"wasi"* ]]; then
                 echo "Testing $dir"
-                cargo test --manifest-path "$dir/Cargo.toml" --all-features
+                cargo test --manifest-path "$dir/Cargo.toml" --all-features --all-targets
               fi
             fi
           done
