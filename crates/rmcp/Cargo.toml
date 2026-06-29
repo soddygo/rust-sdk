@@ -100,7 +100,7 @@ hyper = { version = "1", features = ["client", "http1"], optional = true }
 hyper-util = { version = "0.1", features = ["tokio"], optional = true }
 
 # macro
-rmcp-soddygo-macros = { workspace = true, optional = true }
+rmcp-macros = { workspace = true, optional = true }
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
 chrono = { version = "0.4.38", default-features = false, features = ["serde", "now"] }
 
@@ -114,10 +114,10 @@ chrono = { version = "0.4.38", default-features = false, features = [
 
 [features]
 default = ["base64", "macros", "server"]
-local = ["rmcp-soddygo-macros?/local"]
+local = ["rmcp-macros?/local"]
 client = ["dep:tokio-stream"]
 server = ["transport-async-rw", "dep:schemars", "dep:pastey"]
-macros = ["dep:rmcp-soddygo-macros", "dep:pastey"]
+macros = ["dep:rmcp-macros", "dep:pastey"]
 elicitation = ["dep:url"]
 
 # reqwest http client

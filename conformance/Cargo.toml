@@ -13,7 +13,7 @@ name = "conformance-client"
 path = "src/bin/client.rs"
 
 [dependencies]
-rmcp-soddygo = { path = "../crates/rmcp", features = [
+rmcp = { package = "rmcp-soddygo", path = "../crates/rmcp", features = [
     "server",
     "client",
     "elicitation",
