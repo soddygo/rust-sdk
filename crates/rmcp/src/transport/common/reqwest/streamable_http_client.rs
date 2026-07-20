@@ -1,16 +1,19 @@
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
-use futures::{StreamExt, stream::BoxStream};
+use futures::stream::BoxStream;
 use http::{HeaderName, HeaderValue, header::WWW_AUTHENTICATE};
 use reqwest::header::ACCEPT;
-use sse_stream::{Sse, SseStream};
+use sse_stream::Sse;
 
 use crate::{
     model::{ClientJsonRpcMessage, JsonRpcMessage, ServerJsonRpcMessage},
     transport::{
-        common::http_header::{
-            EVENT_STREAM_MIME_TYPE, HEADER_LAST_EVENT_ID, HEADER_SESSION_ID, JSON_MIME_TYPE,
-            extract_scope_from_header, validate_custom_header,
+        common::{
+            client_side_sse::{DEFAULT_MAX_SSE_EVENT_SIZE, bounded_sse_stream},
+            http_header::{
+                EVENT_STREAM_MIME_TYPE, HEADER_LAST_EVENT_ID, HEADER_SESSION_ID, JSON_MIME_TYPE,
+                extract_scope_from_header, validate_custom_header,
+            },
         },
         streamable_http_client::*,
     },
@@ -54,6 +57,26 @@ impl StreamableHttpClient for reqwest::Client {
         auth_token: Option<String>,
         custom_headers: HashMap<HeaderName, HeaderValue>,
     ) -> Result<BoxStream<'static, Result<Sse, SseError>>, StreamableHttpError<Self::Error>> {
+        self.get_stream_with_max_sse_event_size(
+            uri,
+            session_id,
+            last_event_id,
+            auth_token,
+            custom_headers,
+            DEFAULT_MAX_SSE_EVENT_SIZE,
+        )
+        .await
+    }
+
+    async fn get_stream_with_max_sse_event_size(
+        &self,
+        uri: Arc<str>,
+        session_id: Arc<str>,
+        last_event_id: Option<String>,
+        auth_token: Option<String>,
+        custom_headers: HashMap<HeaderName, HeaderValue>,
+        max_sse_event_size: usize,
+    ) -> Result<BoxStream<'static, Result<Sse, SseError>>, StreamableHttpError<Self::Error>> {
         let mut request_builder = self
             .get(uri.as_ref())
             .header(ACCEPT, [EVENT_STREAM_MIME_TYPE, JSON_MIME_TYPE].join(", "))
@@ -84,7 +107,7 @@ impl StreamableHttpClient for reqwest::Client {
                 return Err(StreamableHttpError::UnexpectedContentType(None));
             }
         }
-        let event_stream = SseStream::from_byte_stream(response.bytes_stream()).boxed();
+        let event_stream = bounded_sse_stream(response.bytes_stream(), max_sse_event_size);
         Ok(event_stream)
     }
 
@@ -119,6 +142,26 @@ impl StreamableHttpClient for reqwest::Client {
         session_id: Option<Arc<str>>,
         auth_token: Option<String>,
         custom_headers: HashMap<HeaderName, HeaderValue>,
+    ) -> Result<StreamableHttpPostResponse, StreamableHttpError<Self::Error>> {
+        self.post_message_with_max_sse_event_size(
+            uri,
+            message,
+            session_id,
+            auth_token,
+            custom_headers,
+            DEFAULT_MAX_SSE_EVENT_SIZE,
+        )
+        .await
+    }
+
+    async fn post_message_with_max_sse_event_size(
+        &self,
+        uri: Arc<str>,
+        message: ClientJsonRpcMessage,
+        session_id: Option<Arc<str>>,
+        auth_token: Option<String>,
+        custom_headers: HashMap<HeaderName, HeaderValue>,
+        max_sse_event_size: usize,
     ) -> Result<StreamableHttpPostResponse, StreamableHttpError<Self::Error>> {
         let mut request = self
             .post(uri.as_ref())
@@ -223,7 +266,7 @@ impl StreamableHttpClient for reqwest::Client {
         }
         match content_type.as_deref() {
             Some(ct) if ct.as_bytes().starts_with(EVENT_STREAM_MIME_TYPE.as_bytes()) => {
-                let event_stream = SseStream::from_byte_stream(response.bytes_stream()).boxed();
+                let event_stream = bounded_sse_stream(response.bytes_stream(), max_sse_event_size);
                 Ok(StreamableHttpPostResponse::Sse(event_stream, session_id))
             }
             Some(ct) if ct.as_bytes().starts_with(JSON_MIME_TYPE.as_bytes()) => {
@@ -299,9 +342,13 @@ impl StreamableHttpClientTransport<reqwest::Client> {
     /// Disables idle connection pooling to avoid ~40 ms stalls caused by
     /// TCP Delayed ACK on Linux when the previous response body was not
     /// fully consumed before the pool attempts to reuse the connection.
+    ///
+    /// Automatic redirects are disabled so caller-supplied custom headers
+    /// cannot be replayed to a redirect target.
     fn default_http_client() -> reqwest::Client {
         reqwest::Client::builder()
             .pool_max_idle_per_host(0)
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .expect("failed to build default reqwest client")
     }
@@ -313,7 +360,7 @@ mod tests {
 
     use super::parse_json_rpc_error;
     use crate::{
-        model::JsonRpcMessage,
+        model::{ClientJsonRpcMessage, ClientRequest, JsonRpcMessage, PingRequest, RequestId},
         transport::streamable_http_client::{AuthRequiredError, InsufficientScopeError},
     };
 
@@ -358,5 +405,187 @@ mod tests {
     #[case::truncated_json(r#"{"broken":"#)]
     fn parse_json_rpc_error_rejects_non_error_bodies(#[case] body: &str) {
         assert!(parse_json_rpc_error(body).is_none());
+    }
+
+    #[tokio::test]
+    async fn post_sse_response_honors_configured_event_limit() -> anyhow::Result<()> {
+        use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+
+        use axum::{Router, routing::post};
+        use futures::StreamExt;
+
+        use crate::transport::streamable_http_client::{
+            StreamableHttpClient, StreamableHttpPostResponse,
+        };
+
+        let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
+        let addr = listener.local_addr()?;
+        let server = tokio::spawn(async move {
+            let app = Router::new().route(
+                "/mcp",
+                post(|| async {
+                    (
+                        [(http::header::CONTENT_TYPE, "text/event-stream")],
+                        "data: this event is too large\n",
+                    )
+                }),
+            );
+            axum::serve(listener, app).await
+        });
+        let message = ClientJsonRpcMessage::request(
+            ClientRequest::PingRequest(PingRequest::default()),
+            RequestId::Number(1),
+        );
+        let client = reqwest::Client::new();
+
+        let response = client
+            .post_message_with_max_sse_event_size(
+                Arc::<str>::from(format!("http://{addr}/mcp")),
+                message,
+                None,
+                None,
+                HashMap::new(),
+                16,
+            )
+            .await?;
+        let StreamableHttpPostResponse::Sse(mut stream, _) = response else {
+            anyhow::bail!("expected SSE response");
+        };
+        let error = stream.next().await.unwrap().unwrap_err();
+
+        server.abort();
+        assert!(error.to_string().contains("maximum size of 16 bytes"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn default_http_client_does_not_leak_custom_headers_to_redirect_target()
+    -> anyhow::Result<()> {
+        use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+
+        use axum::{
+            Router, extract::State, http::StatusCode, response::IntoResponse, routing::post,
+        };
+        use http::{HeaderMap, HeaderName, HeaderValue, header::LOCATION};
+        use tokio::sync::Mutex;
+
+        use super::StreamableHttpClientTransport;
+        use crate::transport::streamable_http_client::{StreamableHttpClient, StreamableHttpError};
+
+        const API_KEY_HEADER: &str = "x-api-key";
+        const API_KEY_VALUE: &str = "secret";
+
+        type CapturedHeader = Arc<Mutex<Option<String>>>;
+
+        #[derive(Clone)]
+        struct RedirectState {
+            location: String,
+            captured_header: CapturedHeader,
+        }
+
+        async fn capture_api_key_header(headers: &HeaderMap, captured_header: &CapturedHeader) {
+            if let Some(value) = headers
+                .get(API_KEY_HEADER)
+                .and_then(|value| value.to_str().ok())
+            {
+                *captured_header.lock().await = Some(value.to_owned());
+            }
+        }
+
+        async fn redirect_handler(
+            State(state): State<RedirectState>,
+            headers: HeaderMap,
+        ) -> impl IntoResponse {
+            capture_api_key_header(&headers, &state.captured_header).await;
+
+            (
+                StatusCode::TEMPORARY_REDIRECT,
+                [(LOCATION, state.location)],
+                "",
+            )
+        }
+
+        async fn redirected_handler(
+            State(captured_header): State<CapturedHeader>,
+            headers: HeaderMap,
+        ) -> impl IntoResponse {
+            capture_api_key_header(&headers, &captured_header).await;
+
+            (
+                StatusCode::OK,
+                [(http::header::CONTENT_TYPE, "application/json")],
+                r#"{"jsonrpc":"2.0","id":1,"result":{}}"#,
+            )
+        }
+
+        let redirected_header = Arc::new(Mutex::new(None));
+        let redirected_listener =
+            tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
+        let redirected_addr = redirected_listener.local_addr()?;
+        let redirected_server = tokio::spawn({
+            let redirected_header = redirected_header.clone();
+            async move {
+                let app = Router::new()
+                    .route("/capture", post(redirected_handler))
+                    .with_state(redirected_header);
+                axum::serve(redirected_listener, app).await
+            }
+        });
+
+        let original_header = Arc::new(Mutex::new(None));
+        let redirect_listener =
+            tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
+        let redirect_addr = redirect_listener.local_addr()?;
+        let redirect_server = tokio::spawn({
+            let state = RedirectState {
+                location: format!("http://{redirected_addr}/capture"),
+                captured_header: original_header.clone(),
+            };
+            async move {
+                let app = Router::new()
+                    .route("/mcp", post(redirect_handler))
+                    .with_state(state);
+                axum::serve(redirect_listener, app).await
+            }
+        });
+
+        let mut custom_headers = HashMap::new();
+        custom_headers.insert(
+            HeaderName::from_static(API_KEY_HEADER),
+            HeaderValue::from_static(API_KEY_VALUE),
+        );
+        let message = ClientJsonRpcMessage::request(
+            ClientRequest::PingRequest(PingRequest::default()),
+            RequestId::Number(1),
+        );
+
+        let client = StreamableHttpClientTransport::<reqwest::Client>::default_http_client();
+        let result = client
+            .post_message(
+                Arc::<str>::from(format!("http://{redirect_addr}/mcp")),
+                message,
+                None,
+                None,
+                custom_headers,
+            )
+            .await;
+
+        assert!(
+            matches!(
+                result,
+                Err(StreamableHttpError::UnexpectedServerResponse(_))
+            ),
+            "redirect response should be returned to the transport, got {result:?}"
+        );
+        assert_eq!(original_header.lock().await.as_deref(), Some(API_KEY_VALUE));
+        assert!(
+            redirected_header.lock().await.is_none(),
+            "custom headers should not be sent to redirect targets"
+        );
+
+        redirect_server.abort();
+        redirected_server.abort();
+
+        Ok(())
     }
 }
